@@ -1,0 +1,1868 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Daddy's Flight Tracker</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap');
+
+  :root{
+    --navy:#0B1E33;
+    --panel:#142A42;
+    --panel-2:#1C3A57;
+    --amber:#F5A623;
+    --ivory:#EDEAE0;
+    --teal:#3AAFA9;
+    --dim:#6E85A0;
+    --commuter:#A78BFA;
+  }
+  *{box-sizing:border-box;}
+  html{
+    scrollbar-width:none; /* Firefox */
+    -ms-overflow-style:none; /* old Edge/IE */
+    -webkit-user-select:none;
+    user-select:none;
+    -webkit-touch-callout:none; /* also suppress the iOS/Android-style press-and-hold menu */
+  }
+  html::-webkit-scrollbar{ display:none; }
+  body{
+    margin:0;
+    background:radial-gradient(ellipse at top, #102844 0%, var(--navy) 60%);
+    color:var(--ivory);
+    font-family:'IBM Plex Sans',sans-serif;
+    min-height:100vh;
+    padding:32px 24px 60px;
+    scrollbar-width:none; /* Firefox */
+    -ms-overflow-style:none; /* old Edge/IE */
+  }
+  body::-webkit-scrollbar{ display:none; } /* Chromium-based browsers, incl. the kiosk display */
+  .wrap{max-width:1000px;margin:0 auto;}
+  .calendar-peek-btn{
+    position:fixed;top:16px;left:72px;z-index:1000;
+    width:48px;height:48px;border-radius:50%;
+    background:var(--panel-2);border:1px solid rgba(255,255,255,.15);
+    color:var(--amber);font-size:22px;cursor:pointer;
+    box-shadow:0 6px 16px -4px rgba(0,0,0,.5);
+  }
+  .refresh-btn{
+    position:fixed;top:16px;left:16px;z-index:1000;
+    width:48px;height:48px;border-radius:50%;
+    background:var(--panel-2);border:1px solid rgba(255,255,255,.15);
+    color:var(--teal);font-size:22px;cursor:pointer;
+    box-shadow:0 6px 16px -4px rgba(0,0,0,.5);
+  }
+  .refresh-btn.spinning{ animation:spin 0.8s linear; }
+  @keyframes spin{ from{ transform:rotate(0deg); } to{ transform:rotate(360deg); } }
+
+  header{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:24px;flex-wrap:wrap;gap:8px;}
+  header h1{font-size:20px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim);font-weight:600;margin:0;}
+  header .clock{font-family:'IBM Plex Mono',monospace;color:var(--ivory);font-size:15px;}
+
+  /* --- Split flap board --- */
+  .board{
+    background:var(--panel);
+    border-radius:14px;
+    padding:28px 28px 24px;
+    box-shadow:0 20px 50px -20px rgba(0,0,0,.6), inset 0 1px 0 rgba(255,255,255,.04);
+    margin-bottom:28px;
+    border:1px solid rgba(255,255,255,.06);
+  }
+  .board-header{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:14px;flex-wrap:wrap;}
+  .board .eyebrow{
+    font-family:'IBM Plex Mono',monospace;
+    font-size:12px;letter-spacing:.2em;color:var(--amber);text-transform:uppercase;margin-bottom:0;
+  }
+  .board .eyebrow.ground{
+    font-size:clamp(20px,5vw,30px);letter-spacing:.08em;font-weight:700;
+    flex:1;text-align:center;
+  }
+  .board .eyebrow.flying{
+    font-size:clamp(20px,5vw,30px);letter-spacing:.08em;font-weight:700;
+    flex:1;text-align:center;
+  }
+  .board .eyebrow.commuter{ color:var(--commuter); }
+  .flap-row{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:18px;}
+  .flap{
+    background:#0C1D33;
+    border-radius:6px;
+    padding:14px 4px;
+    text-align:center;
+    font-family:'IBM Plex Mono',monospace;
+    font-weight:700;
+    font-size:clamp(22px,5vw,38px);
+    width:38px;
+    color:var(--ivory);
+    border-bottom:2px solid rgba(0,0,0,.5);
+    position:relative;
+    overflow:hidden;
+  }
+  .flap::after{
+    content:'';position:absolute;left:0;right:0;top:50%;height:1px;background:rgba(0,0,0,.55);
+  }
+  .flap.space{background:transparent;}
+  .flap.wide{width:auto;padding:14px 12px;}
+
+  .route-line{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;margin:6px 0 16px;}
+  .airport{font-family:'IBM Plex Mono',monospace;font-size:30px;font-weight:700;line-height:1;}
+  .airport.end{text-align:right;}
+  .airport .city{display:block;font-family:'IBM Plex Sans',sans-serif;font-size:12px;color:var(--dim);font-weight:500;letter-spacing:.02em;margin-top:5px;}
+  .airport .weather{display:block;font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--ivory);margin-top:4px;}
+  .airport .tag{display:block;font-family:'IBM Plex Sans',sans-serif;font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:.1em;margin-top:2px;}
+
+  #mapContainer, #previewMapContainer{
+    height:320px;width:100%;border-radius:10px;overflow:hidden;margin-bottom:18px;
+    border:1px solid rgba(255,255,255,.08);
+    background:#0C1D33;
+  }
+  #previewMapContainer{ height:260px; margin-top:14px; }
+  #mapContainer .fallback-route-svg, #previewMapContainer .fallback-route-svg{ display:block; width:100%; height:100%; }
+  .leaflet-tile-pane{filter:invert(1) hue-rotate(180deg) brightness(.95) contrast(.9);}
+  .route-dot-label{ font-family:'IBM Plex Sans',sans-serif; font-size:11px; fill:var(--dim); }
+  .plane-icon{font-size:22px;filter:drop-shadow(0 0 3px rgba(0,0,0,.6));}
+
+  .location-line{font-family:'IBM Plex Mono',monospace;font-size:13px;color:var(--dim);margin:0 0 12px;}
+  .time-to-land-banner{
+    font-family:'IBM Plex Mono',monospace;font-size:clamp(20px,5vw,28px);font-weight:700;
+    color:var(--amber);margin:0 0 14px;
+  }
+  .time-to-land-banner .l{
+    font-family:'IBM Plex Sans',sans-serif;font-size:13px;font-weight:400;color:var(--dim);
+    text-transform:uppercase;letter-spacing:.08em;
+  }
+  .time-to-land-inline{
+    font-family:'IBM Plex Mono',monospace;font-size:15px;font-weight:700;
+    color:var(--amber);text-align:center;margin-bottom:4px;white-space:nowrap;
+  }
+  .time-to-land-inline .l{
+    font-family:'IBM Plex Sans',sans-serif;font-size:10px;font-weight:400;color:var(--dim);
+    text-transform:uppercase;letter-spacing:.06em;display:block;
+  }
+  .stat-row{display:flex;gap:28px;flex-wrap:wrap;font-family:'IBM Plex Mono',monospace;}
+  .stat{min-width:90px;}
+  .stat .v{font-size:20px;color:var(--amber);font-weight:700;}
+  .stat .l{font-size:11px;color:var(--dim);letter-spacing:.08em;text-transform:uppercase;}
+
+  .ground-msg{font-size:16px;color:var(--dim);}
+  .landed-banner{
+    font-family:'IBM Plex Mono',monospace;font-size:14px;font-weight:700;
+    color:var(--teal);margin:0 0 10px;
+  }
+  .estimate-warning{
+    font-family:'IBM Plex Mono',monospace;font-size:14px;font-weight:700;
+    color:#1C1508;background:var(--amber);border-radius:8px;
+    padding:8px 14px;margin:0 0 14px;display:inline-block;
+  }
+  .progress-track{
+    position:relative;height:6px;background:rgba(255,255,255,.1);border-radius:3px;
+    margin:14px 0 20px;
+  }
+  .mid-column{
+    flex:1;margin:0 16px;align-self:center;
+  }
+  .progress-fill{
+    position:absolute;top:0;left:0;height:100%;background:var(--teal);border-radius:3px;
+  }
+  .progress-plane{
+    position:absolute;top:50%;font-size:16px;transform:translate(-50%,-50%);
+    filter:drop-shadow(0 0 3px rgba(0,0,0,.6));
+  }
+  .ground-msg b{color:var(--teal);}
+  .next-up{font-size:clamp(20px,5vw,28px);color:var(--ivory);font-weight:700;margin-top:6px;line-height:1.25;}
+  .next-up b{color:var(--teal);}
+  .next-up-date{font-family:'IBM Plex Mono',monospace;font-size:15px;color:var(--dim);margin-top:4px;}
+  .strike{ text-decoration:line-through; color:var(--dim); opacity:.65; }
+  .new-time{ color:#E4572E; font-weight:700; }
+  .flight-badge{display:flex;align-items:center;gap:10px;flex-shrink:0;}
+  .flight-badge .text{text-align:right;}
+  .flight-badge .logo{
+    width:44px;height:44px;display:flex;align-items:center;justify-content:center;flex-shrink:0;
+  }
+  .flight-badge .logo svg{ width:44px;height:44px; }
+  .flight-badge .logo-img{ width:100%; height:100%; object-fit:contain; }
+  .flight-badge .airline{font-family:'IBM Plex Sans',sans-serif;font-size:13px;color:var(--dim);}
+  .flight-badge .num{font-family:'IBM Plex Mono',monospace;font-size:17px;font-weight:700;color:var(--ivory);}
+  .countdown{
+    margin-top:14px;font-family:'IBM Plex Mono',monospace;font-size:clamp(18px,4.5vw,26px);
+    font-weight:700;color:var(--amber);letter-spacing:.02em;text-align:center;
+  }
+  .countdown.delayed{ color:#E4572E; }
+  .countdown-inline{
+    margin-top:0;font-size:16px;white-space:nowrap;
+  }
+
+  /* --- Calendar view --- */
+  h2{font-size:13px;letter-spacing:.16em;text-transform:uppercase;color:var(--dim);margin:0;font-weight:600;}
+  .cal-header{display:flex;align-items:center;justify-content:center;gap:18px;margin-bottom:12px;}
+  .cal-nav-btn{
+    background:var(--panel-2);color:var(--amber);border:1px solid rgba(255,255,255,.12);
+    border-radius:6px;width:30px;height:30px;font-size:16px;line-height:1;cursor:pointer;
+  }
+  .calendar-grid{
+    display:grid;grid-template-columns:repeat(7, 1fr);gap:6px;
+  }
+  .cal-weekday{
+    text-align:center;font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--dim);
+    text-transform:uppercase;letter-spacing:.06em;padding-bottom:4px;
+  }
+  .cal-day{
+    background:var(--panel);border:1px solid rgba(255,255,255,.06);border-radius:8px;
+    min-height:90px;padding:6px;display:flex;flex-direction:column;gap:4px;
+  }
+  .cal-day.other-month{ opacity:.3; }
+  .cal-day.today{ border-color:var(--amber); border-width:2px; }
+  .cal-day .daynum{ font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--dim); }
+  .cal-day.today .daynum{ color:var(--amber);font-weight:700; }
+  .cal-flight-chip{
+    background:var(--panel-2);border-radius:5px;padding:4px 6px;
+    font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--ivory);
+    line-height:1.4;
+  }
+  .cal-flight-chip .chip-time{ display:block;color:var(--amber);font-weight:700; }
+  .cal-flight-chip .chip-route{ display:block; }
+  .cal-flight-chip.commuter{ border-left:3px solid var(--commuter); }
+  .cal-flight-chip.commuter .chip-time{ color:var(--commuter); }
+  .cal-flight-chip.chip-clickable{ cursor:pointer; }
+  .cal-flight-chip.chip-clickable:active{ background:var(--panel); }
+
+  .replay-overlay{
+    position:fixed; inset:0; background:rgba(6,14,26,.85); z-index:2000;
+    display:flex; align-items:center; justify-content:center; padding:20px;
+  }
+  .replay-panel{
+    background:var(--panel); border-radius:14px; padding:24px; max-width:900px; width:100%;
+    max-height:90vh; overflow-y:auto; border:1px solid rgba(255,255,255,.1);
+    box-shadow:0 20px 50px -20px rgba(0,0,0,.7);
+  }
+  .replay-header{ display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:14px; }
+  .replay-header h2{ margin:0; font-family:'IBM Plex Mono',monospace; font-size:22px; color:var(--ivory); }
+  .replay-close{
+    background:var(--panel-2); color:var(--dim); border:1px solid rgba(255,255,255,.15);
+    border-radius:8px; padding:6px 14px; font-family:'IBM Plex Mono',monospace; font-size:14px; cursor:pointer;
+  }
+  .replay-times{ font-family:'IBM Plex Mono',monospace; font-size:14px; color:var(--dim); margin-bottom:14px; }
+  .replay-times b{ color:var(--ivory); }
+  .replay-no-trail{ color:var(--dim); font-size:14px; padding:20px 0; text-align:center; }
+  .cal-layover{
+    font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--dim);
+    font-style:italic;padding:0 2px;line-height:1.2;
+  }
+
+  .setup{
+    margin-top:36px;font-size:13px;color:var(--dim);line-height:1.6;
+    border-top:1px dashed rgba(255,255,255,.12);padding-top:16px;
+  }
+  .setup code{background:var(--panel);padding:1px 6px;border-radius:4px;color:var(--ivory);}
+  /* --- Small-screen tuning (e.g. the 1024x600 kiosk display) — bigger text, tighter
+     spacing, so the main dashboard reads clearly and fits without needing to scroll.
+     The calendar below is reached by scrolling/the peek button, same as before. --- */
+  @media (max-width: 1100px){
+    body{ padding:16px 14px 40px; }
+    .board{ padding:18px 18px 14px; }
+    .board-header{ margin-bottom:10px; }
+    .board .eyebrow.ground, .board .eyebrow.flying{ font-size:clamp(22px,6vw,34px); }
+    .next-up{ font-size:clamp(22px,6vw,32px); }
+    .next-up-date{ font-size:17px; }
+    .airport .city{ font-size:14px; }
+    .airport .weather{ font-size:14px; }
+    .airport .tag{ font-size:11px; }
+    .flight-badge .airline{ font-size:14px; }
+    .flight-badge .num{ font-size:19px; }
+    .flight-badge .logo{ width:52px;height:52px; }
+    .countdown{ font-size:clamp(20px,5.5vw,30px); margin-top:10px; }
+    .location-line{ font-size:14px; margin:0 0 8px; }
+    .time-to-land-banner{ font-size:clamp(22px,6vw,30px); margin:0 0 10px; }
+    .stat-row{ gap:18px; }
+    .stat .v{ font-size:22px; }
+    .stat .l{ font-size:12px; }
+    #mapContainer{ height:300px; margin-bottom:12px; }
+    #previewMapContainer{ height:230px; margin-top:10px; }
+
+    /* Calendar: bigger, more legible text; trimmed padding/gaps so a full month still
+       fits on screen in one view without needing to scroll through the grid itself. */
+    .cal-header{ margin-bottom:8px; }
+    .calendar-grid{ gap:4px; }
+    .cal-day{ min-height:84px; padding:5px; gap:3px; }
+    .cal-flight-chip{ font-size:12px; padding:3px 6px; line-height:1.3; }
+    .cal-layover{ font-size:10px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <button id="calendarPeekBtn" class="calendar-peek-btn">📅</button>
+  <button id="refreshBtn" class="refresh-btn" title="Reload latest version">⟳</button>
+
+  <div class="board" id="board">
+    <div class="board-header">
+      <div class="eyebrow" id="boardEyebrow">Checking status…</div>
+      <div id="boardBadge"></div>
+    </div>
+    <div id="boardBody"><!-- filled by JS --></div>
+  </div>
+
+  <div class="cal-header">
+    <button id="calPrev" class="cal-nav-btn">‹</button>
+    <h2 id="calMonthLabel">Coming Up</h2>
+    <button id="calNext" class="cal-nav-btn">›</button>
+  </div>
+  <div id="calendarGrid" class="calendar-grid"></div>
+  <div id="replayOverlay"></div>
+
+  <div class="setup" style="opacity:.5;">Build marker: ZOOM-FIX-v1</div>
+  <div class="setup" id="syncStatus">
+    Checking calendar sync status…
+  </div>
+  <button id="syncNowBtn" style="margin-top:10px;background:var(--panel-2);color:var(--amber);border:1px solid rgba(255,255,255,.15);border-radius:8px;padding:8px 16px;font-family:'IBM Plex Mono',monospace;font-size:13px;cursor:pointer;">Sync Now</button>
+
+  <div class="setup" style="margin-top:24px;">
+    <div style="margin-bottom:8px;">Manually add a flight the calendar can't auto-resolve (syncs to all devices):</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
+      <input id="manFlightNo" type="text" placeholder="UA1846" style="background:var(--panel-2);color:var(--ivory);border:1px solid rgba(255,255,255,.15);border-radius:8px;padding:8px 10px;font-family:'IBM Plex Mono',monospace;font-size:13px;width:90px;">
+      <input id="manFrom" type="text" placeholder="From" style="background:var(--panel-2);color:var(--ivory);border:1px solid rgba(255,255,255,.15);border-radius:8px;padding:8px 10px;font-family:'IBM Plex Mono',monospace;font-size:13px;width:70px;">
+      <input id="manTo" type="text" placeholder="To" style="background:var(--panel-2);color:var(--ivory);border:1px solid rgba(255,255,255,.15);border-radius:8px;padding:8px 10px;font-family:'IBM Plex Mono',monospace;font-size:13px;width:70px;">
+      <input id="manDep" type="datetime-local" style="background:var(--panel-2);color:var(--ivory);border:1px solid rgba(255,255,255,.15);border-radius:8px;padding:8px 10px;font-family:'IBM Plex Mono',monospace;font-size:13px;">
+      <input id="manArr" type="datetime-local" style="background:var(--panel-2);color:var(--ivory);border:1px solid rgba(255,255,255,.15);border-radius:8px;padding:8px 10px;font-family:'IBM Plex Mono',monospace;font-size:13px;">
+      <input id="manAircraft" type="text" placeholder="Aircraft (optional)" style="background:var(--panel-2);color:var(--ivory);border:1px solid rgba(255,255,255,.15);border-radius:8px;padding:8px 10px;font-family:'IBM Plex Mono',monospace;font-size:13px;width:150px;">
+      <button id="manAddBtn" style="background:var(--panel-2);color:var(--amber);border:1px solid rgba(255,255,255,.15);border-radius:8px;padding:8px 16px;font-family:'IBM Plex Mono',monospace;font-size:13px;cursor:pointer;">Add Flight</button>
+    </div>
+    <div id="manFlightsList"></div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+// ---- AIRPORT LOOKUP: United Airlines mainline hub + major destination network ----
+// Covers all 8 hubs plus the major domestic & international cities United serves.
+// (United's full network is ~400 points incl. tiny regional United Express spokes —
+// this covers the destinations you're realistically flying. Ask Claude to add any
+// specific smaller airport that's missing.)
+const AIRPORTS = {
+  // West Palm Beach — renamed from PBI to DJT (President Donald J. Trump Intl) in Aug 2026
+  DJT:{city:"West Palm Beach",state:"FL",lat:26.6832,lon:-80.0956},
+  // United hubs
+  ORD:{city:"Chicago",state:"IL",lat:41.9742,lon:-87.9073}, DEN:{city:"Denver",state:"CO",lat:39.8561,lon:-104.6737},
+  IAH:{city:"Houston",state:"TX",lat:29.9902,lon:-95.3368}, EWR:{city:"Newark",state:"NJ",lat:40.6895,lon:-74.1745},
+  SFO:{city:"San Francisco",state:"CA",lat:37.6213,lon:-122.3790}, IAD:{city:"Washington",state:"DC",lat:38.9531,lon:-77.4565},
+  LAX:{city:"Los Angeles",state:"CA",lat:33.9416,lon:-118.4085}, GUM:{city:"Guam",state:"",lat:13.4834,lon:144.7960},
+
+  // US — Northeast
+  JFK:{city:"New York",state:"NY",lat:40.6413,lon:-73.7781}, LGA:{city:"New York",state:"NY",lat:40.7769,lon:-73.8740},
+  BOS:{city:"Boston",state:"MA",lat:42.3656,lon:-71.0096}, PHL:{city:"Philadelphia",state:"PA",lat:39.8729,lon:-75.2437},
+  DCA:{city:"Washington",state:"DC",lat:38.8512,lon:-77.0402}, BWI:{city:"Baltimore",state:"MD",lat:39.1774,lon:-76.6684},
+  ALB:{city:"Albany",state:"NY",lat:42.7483,lon:-73.8017}, BUF:{city:"Buffalo",state:"NY",lat:42.9405,lon:-78.7322},
+  ROC:{city:"Rochester",state:"NY",lat:43.1189,lon:-77.6724}, SYR:{city:"Syracuse",state:"NY",lat:43.1112,lon:-76.1063},
+  BDL:{city:"Hartford",state:"CT",lat:41.9389,lon:-72.6832}, PVD:{city:"Providence",state:"RI",lat:41.7240,lon:-71.4283},
+  PWM:{city:"Portland",state:"ME",lat:43.6462,lon:-70.3093}, BTV:{city:"Burlington",state:"VT",lat:44.4719,lon:-73.1533},
+  RIC:{city:"Richmond",state:"VA",lat:37.5052,lon:-77.3197}, ORF:{city:"Norfolk",state:"VA",lat:36.8946,lon:-76.2012},
+
+  // US — Southeast
+  ATL:{city:"Atlanta",state:"GA",lat:33.6407,lon:-84.4277}, MIA:{city:"Miami",state:"FL",lat:25.7959,lon:-80.2870},
+  MCO:{city:"Orlando",state:"FL",lat:28.4312,lon:-81.3081}, FLL:{city:"Fort Lauderdale",state:"FL",lat:26.0742,lon:-80.1506},
+  TPA:{city:"Tampa",state:"FL",lat:27.9755,lon:-82.5332}, RSW:{city:"Fort Myers",state:"FL",lat:26.5362,lon:-81.7552},
+  PBI:{city:"West Palm Beach",state:"FL",lat:26.6832,lon:-80.0956}, JAX:{city:"Jacksonville",state:"FL",lat:30.4941,lon:-81.6879},
+  CLT:{city:"Charlotte",state:"NC",lat:35.2144,lon:-80.9473}, RDU:{city:"Raleigh/Durham",state:"NC",lat:35.8776,lon:-78.7875},
+  GSP:{city:"Greenville/Spartanburg",state:"SC",lat:34.8957,lon:-82.2189}, AVL:{city:"Asheville",state:"NC",lat:35.4362,lon:-82.5418},
+  ILM:{city:"Wilmington",state:"NC",lat:34.2706,lon:-77.9026}, CHS:{city:"Charleston",state:"SC",lat:32.8986,lon:-80.0405},
+  SAV:{city:"Savannah",state:"GA",lat:32.1276,lon:-81.2021}, BHM:{city:"Birmingham",state:"AL",lat:33.5629,lon:-86.7535},
+  HSV:{city:"Huntsville",state:"AL",lat:34.6372,lon:-86.7751}, MSY:{city:"New Orleans",state:"LA",lat:29.9934,lon:-90.2580},
+  BNA:{city:"Nashville",state:"TN",lat:36.1263,lon:-86.6774}, MEM:{city:"Memphis",state:"TN",lat:35.0424,lon:-89.9767},
+  TYS:{city:"Knoxville",state:"TN",lat:35.8110,lon:-83.9940}, CHA:{city:"Chattanooga",state:"TN",lat:35.0353,lon:-85.2038},
+  MYR:{city:"Myrtle Beach",state:"SC",lat:33.6797,lon:-78.9283}, PNS:{city:"Pensacola",state:"FL",lat:30.4734,lon:-87.1866},
+
+  // US — Midwest
+  MDW:{city:"Chicago",state:"IL",lat:41.7868,lon:-87.7522}, DTW:{city:"Detroit",state:"MI",lat:42.2124,lon:-83.3534},
+  GRR:{city:"Grand Rapids",state:"MI",lat:42.8808,lon:-85.5228}, MSP:{city:"Minneapolis",state:"MN",lat:44.8848,lon:-93.2223},
+  STL:{city:"St. Louis",state:"MO",lat:38.7487,lon:-90.3700}, MCI:{city:"Kansas City",state:"MO",lat:39.2976,lon:-94.7139},
+  CLE:{city:"Cleveland",state:"OH",lat:41.4117,lon:-81.8498}, CMH:{city:"Columbus",state:"OH",lat:39.9980,lon:-82.8919},
+  CVG:{city:"Cincinnati",state:"OH",lat:39.0533,lon:-84.6630}, PIT:{city:"Pittsburgh",state:"PA",lat:40.4915,lon:-80.2329},
+  IND:{city:"Indianapolis",state:"IN",lat:39.7169,lon:-86.2956}, MKE:{city:"Milwaukee",state:"WI",lat:42.9472,lon:-87.8966},
+  OMA:{city:"Omaha",state:"NE",lat:41.3032,lon:-95.8941}, DSM:{city:"Des Moines",state:"IA",lat:41.5340,lon:-93.6631},
+  CID:{city:"Cedar Rapids",state:"IA",lat:41.8847,lon:-91.7108}, FSD:{city:"Sioux Falls",state:"SD",lat:43.5820,lon:-96.7419},
+  FAR:{city:"Fargo",state:"ND",lat:46.9207,lon:-96.8158}, XNA:{city:"Northwest Arkansas",state:"AR",lat:36.2818,lon:-94.3068},
+  LIT:{city:"Little Rock",state:"AR",lat:34.7294,lon:-92.2243},
+
+  // US — South/Central
+  DFW:{city:"Dallas/Fort Worth",state:"TX",lat:32.8998,lon:-97.0403}, DAL:{city:"Dallas",state:"TX",lat:32.8471,lon:-96.8518},
+  AUS:{city:"Austin",state:"TX",lat:30.1975,lon:-97.6664}, SAT:{city:"San Antonio",state:"TX",lat:29.5337,lon:-98.4698},
+  ELP:{city:"El Paso",state:"TX",lat:31.8072,lon:-106.3781}, LBB:{city:"Lubbock",state:"TX",lat:33.6636,lon:-101.8228},
+  MAF:{city:"Midland/Odessa",state:"TX",lat:31.9425,lon:-102.2019}, CRP:{city:"Corpus Christi",state:"TX",lat:27.7704,lon:-97.5012},
+  HRL:{city:"Harlingen",state:"TX",lat:26.2285,lon:-97.6544}, BRO:{city:"Brownsville",state:"TX",lat:25.9068,lon:-97.4259},
+  OKC:{city:"Oklahoma City",state:"OK",lat:35.3931,lon:-97.6007}, TUL:{city:"Tulsa",state:"OK",lat:36.1984,lon:-95.8881},
+  ICT:{city:"Wichita",state:"KS",lat:37.6499,lon:-97.4331},
+
+  // US — Mountain/West
+  PHX:{city:"Phoenix",state:"AZ",lat:33.4373,lon:-112.0078}, TUS:{city:"Tucson",state:"AZ",lat:32.1161,lon:-110.9410},
+  LAS:{city:"Las Vegas",state:"NV",lat:36.0840,lon:-115.1537}, RNO:{city:"Reno",state:"NV",lat:39.4991,lon:-119.7681},
+  SLC:{city:"Salt Lake City",state:"UT",lat:40.7899,lon:-111.9791}, ABQ:{city:"Albuquerque",state:"NM",lat:35.0402,lon:-106.6091},
+  COS:{city:"Colorado Springs",state:"CO",lat:38.8058,lon:-104.7008}, EGE:{city:"Vail/Eagle",state:"CO",lat:39.6426,lon:-106.9177},
+  ASE:{city:"Aspen",state:"CO",lat:39.2232,lon:-106.8687}, JAC:{city:"Jackson Hole",state:"WY",lat:43.6073,lon:-110.7377},
+  BIL:{city:"Billings",state:"MT",lat:45.8077,lon:-108.5429}, BZN:{city:"Bozeman",state:"MT",lat:45.7772,lon:-111.1531},
+  BOI:{city:"Boise",state:"ID",lat:43.5644,lon:-116.2228},
+
+  // US — West Coast / Pacific
+  SAN:{city:"San Diego",state:"CA",lat:32.7338,lon:-117.1933}, SJC:{city:"San Jose",state:"CA",lat:37.3639,lon:-121.9289},
+  OAK:{city:"Oakland",state:"CA",lat:37.7126,lon:-122.2197}, SMF:{city:"Sacramento",state:"CA",lat:38.6954,lon:-121.5908},
+  FAT:{city:"Fresno",state:"CA",lat:36.7762,lon:-119.7181}, BUR:{city:"Burbank",state:"CA",lat:34.2007,lon:-118.3585},
+  ONT:{city:"Ontario",state:"CA",lat:34.0560,lon:-117.6012}, SNA:{city:"Santa Ana",state:"CA",lat:33.6757,lon:-117.8682},
+  PDX:{city:"Portland",state:"OR",lat:45.5898,lon:-122.5951}, SEA:{city:"Seattle",state:"WA",lat:47.4502,lon:-122.3088},
+  GEG:{city:"Spokane",state:"WA",lat:47.6199,lon:-117.5338}, ANC:{city:"Anchorage",state:"AK",lat:61.1743,lon:-149.9963},
+  FAI:{city:"Fairbanks",state:"AK",lat:64.8151,lon:-147.8563}, HNL:{city:"Honolulu",state:"HI",lat:21.3187,lon:-157.9224},
+  OGG:{city:"Maui",state:"HI",lat:20.8986,lon:-156.4305}, KOA:{city:"Kona",state:"HI",lat:19.7388,lon:-156.0456},
+  LIH:{city:"Kauai",state:"HI",lat:21.9760,lon:-159.3389},
+
+  // Canada
+  YYZ:{city:"Toronto",state:"ON",lat:43.6777,lon:-79.6248}, YUL:{city:"Montreal",state:"QC",lat:45.4706,lon:-73.7408},
+  YVR:{city:"Vancouver",state:"BC",lat:49.1967,lon:-123.1815}, YYC:{city:"Calgary",state:"AB",lat:51.1215,lon:-114.0076},
+  YEG:{city:"Edmonton",state:"AB",lat:53.3097,lon:-113.5801}, YOW:{city:"Ottawa",state:"ON",lat:45.3225,lon:-75.6692},
+  YWG:{city:"Winnipeg",state:"MB",lat:49.9100,lon:-97.2399}, YHZ:{city:"Halifax",state:"NS",lat:44.8808,lon:-63.5086},
+  YQB:{city:"Quebec City",state:"QC",lat:46.7911,lon:-71.3933},
+
+  // Mexico
+  MEX:{city:"Mexico City",state:"",lat:19.4363,lon:-99.0721}, CUN:{city:"Cancún",state:"",lat:21.0365,lon:-86.8771},
+  GDL:{city:"Guadalajara",state:"",lat:20.5218,lon:-103.3112}, MTY:{city:"Monterrey",state:"",lat:25.7785,lon:-100.1069},
+  PVR:{city:"Puerto Vallarta",state:"",lat:20.6801,lon:-105.2542}, SJD:{city:"Los Cabos",state:"",lat:23.1518,lon:-109.7215},
+  CZM:{city:"Cozumel",state:"",lat:20.5224,lon:-86.9256}, MZT:{city:"Mazatlán",state:"",lat:23.1614,lon:-106.2657},
+  ZIH:{city:"Ixtapa/Zihuatanejo",state:"",lat:17.6016,lon:-101.4606}, OAX:{city:"Oaxaca",state:"",lat:16.9999,lon:-96.7266},
+  MID:{city:"Mérida",state:"",lat:20.9370,lon:-89.6577}, QRO:{city:"Querétaro",state:"",lat:20.6173,lon:-100.1857},
+  BJX:{city:"León",state:"",lat:20.9935,lon:-101.4810}, AGU:{city:"Aguascalientes",state:"",lat:21.7057,lon:-102.3178},
+  SLP:{city:"San Luis Potosí",state:"",lat:22.2542,lon:-100.9309},
+
+  // Caribbean
+  SJU:{city:"San Juan",state:"PR",lat:18.4394,lon:-66.0018}, STT:{city:"St. Thomas",state:"USVI",lat:18.3373,lon:-64.9734},
+  STX:{city:"St. Croix",state:"USVI",lat:17.7017,lon:-64.7986}, NAS:{city:"Nassau",state:"",lat:25.0389,lon:-77.4662},
+  PUJ:{city:"Punta Cana",state:"",lat:18.5674,lon:-68.3634}, SDQ:{city:"Santo Domingo",state:"",lat:18.4297,lon:-69.6689},
+  MBJ:{city:"Montego Bay",state:"",lat:18.5037,lon:-77.9134}, KIN:{city:"Kingston",state:"",lat:17.9357,lon:-76.7875},
+  AUA:{city:"Aruba",state:"",lat:12.5014,lon:-70.0152}, CUR:{city:"Curaçao",state:"",lat:12.1889,lon:-68.9598},
+  GCM:{city:"Grand Cayman",state:"",lat:19.2928,lon:-81.3577}, PLS:{city:"Providenciales",state:"",lat:21.7736,lon:-72.2658},
+  BGI:{city:"Bridgetown",state:"",lat:13.0746,lon:-59.4925},
+
+  // Central America
+  BZE:{city:"Belize City",state:"",lat:17.5391,lon:-88.3082}, SJO:{city:"San José",state:"",lat:9.9939,lon:-84.2088},
+  LIR:{city:"Liberia",state:"",lat:10.5933,lon:-85.5444}, PTY:{city:"Panama City",state:"",lat:9.0714,lon:-79.3835},
+  SAL:{city:"San Salvador",state:"",lat:13.4409,lon:-89.0557}, GUA:{city:"Guatemala City",state:"",lat:14.5833,lon:-90.5275},
+  TGU:{city:"Tegucigalpa",state:"",lat:14.0608,lon:-87.2172}, RTB:{city:"Roatán",state:"",lat:16.3167,lon:-86.5231},
+  MGA:{city:"Managua",state:"",lat:12.1415,lon:-86.1682},
+
+  // South America
+  BOG:{city:"Bogotá",state:"",lat:4.7016,lon:-74.1469}, MDE:{city:"Medellín",state:"",lat:6.1645,lon:-75.4231},
+  LIM:{city:"Lima",state:"",lat:-12.0219,lon:-77.1143}, GYE:{city:"Guayaquil",state:"",lat:-2.1574,lon:-79.8836},
+  UIO:{city:"Quito",state:"",lat:-0.1292,lon:-78.3575}, GRU:{city:"São Paulo",state:"",lat:-23.4356,lon:-46.4731},
+  GIG:{city:"Rio de Janeiro",state:"",lat:-22.8090,lon:-43.2506}, EZE:{city:"Buenos Aires",state:"",lat:-34.8222,lon:-58.5358},
+  SCL:{city:"Santiago",state:"",lat:-33.3930,lon:-70.7858},
+
+  // Europe
+  LHR:{city:"London",state:"UK",lat:51.4700,lon:-0.4543}, LGW:{city:"London",state:"UK",lat:51.1537,lon:-0.1821},
+  CDG:{city:"Paris",state:"",lat:49.0097,lon:2.5479}, FRA:{city:"Frankfurt",state:"",lat:50.0379,lon:8.5622},
+  MUC:{city:"Munich",state:"",lat:48.3538,lon:11.7861}, AMS:{city:"Amsterdam",state:"",lat:52.3105,lon:4.7683},
+  FCO:{city:"Rome",state:"",lat:41.8003,lon:12.2389}, MXP:{city:"Milan",state:"",lat:45.6306,lon:8.7281},
+  ZRH:{city:"Zurich",state:"",lat:47.4647,lon:8.5492}, BRU:{city:"Brussels",state:"",lat:50.9014,lon:4.4844},
+  DUB:{city:"Dublin",state:"",lat:53.4213,lon:-6.2701}, LIS:{city:"Lisbon",state:"",lat:38.7813,lon:-9.1359},
+  MAD:{city:"Madrid",state:"",lat:40.4936,lon:-3.5668}, BCN:{city:"Barcelona",state:"",lat:41.2974,lon:2.0833},
+  ATH:{city:"Athens",state:"",lat:37.9364,lon:23.9445}, EDI:{city:"Edinburgh",state:"",lat:55.9500,lon:-3.3725},
+  MAN:{city:"Manchester",state:"",lat:53.3537,lon:-2.2750}, VIE:{city:"Vienna",state:"",lat:48.1103,lon:16.5697},
+  CPH:{city:"Copenhagen",state:"",lat:55.6180,lon:12.6560}, OSL:{city:"Oslo",state:"",lat:60.1976,lon:11.1004},
+  ARN:{city:"Stockholm",state:"",lat:59.6519,lon:17.9186}, KEF:{city:"Reykjavik",state:"",lat:63.9850,lon:-22.6056},
+
+  // Middle East
+  TLV:{city:"Tel Aviv",state:"",lat:32.0055,lon:34.8854},
+
+  // Asia
+  NRT:{city:"Tokyo",state:"",lat:35.7647,lon:140.3864}, HND:{city:"Tokyo",state:"",lat:35.5494,lon:139.7798},
+  ICN:{city:"Seoul",state:"",lat:37.4602,lon:126.4407}, PVG:{city:"Shanghai",state:"",lat:31.1443,lon:121.8083},
+  HKG:{city:"Hong Kong",state:"",lat:22.3080,lon:113.9185}, TPE:{city:"Taipei",state:"",lat:25.0777,lon:121.2328},
+  SIN:{city:"Singapore",state:"",lat:1.3644,lon:103.9915}, MNL:{city:"Manila",state:"",lat:14.5086,lon:121.0198},
+  DEL:{city:"Delhi",state:"",lat:28.5562,lon:77.1000}, BOM:{city:"Mumbai",state:"",lat:19.0896,lon:72.8656},
+
+  // Oceania
+  SYD:{city:"Sydney",state:"",lat:-33.9399,lon:151.1753}, AKL:{city:"Auckland",state:"",lat:-37.0082,lon:174.7850},
+  NAN:{city:"Nadi",state:"",lat:-17.7554,lon:177.4434},
+};
+function airportInfo(code){
+  return AIRPORTS[code] || { city: "", state: "", lat: null, lon: null };
+}
+
+// ---- LIVE SCHEDULE FEED ----
+// Paste the Web App URL from calendar-sync.gs here once you've deployed it.
+const CALENDAR_FEED_URL = "https://script.google.com/macros/s/AKfycbz4Rsz8jYyI8nsmWCN1nG7oxI_ys2DQsDzD7AgH2gFRTLKlCAw5Ov1js3xhNtEPHjDHhA/exec";
+
+// Empty starting state — the real schedule loads within a few seconds via the live calendar
+// sync below. Deliberately left empty rather than a hardcoded snapshot: a stale fallback here
+// would briefly show genuinely wrong flights on every fresh page load, which is worse than a
+// brief, honest "loading" state.
+let MY_FLIGHTS = [];
+
+// Remembers the FIRST scheduled departure time seen for each flight this session, keyed by
+// flight number + route (stable even if the time itself shifts due to a delay). This lets us
+// show "was 3:40 PM, now 4:15 PM" and run the delay timer off the original time rather than
+// resetting every time the airline updates its estimate.
+let originalDepartures = {};
+function trackOriginalDepartures(flights){
+  flights.forEach(f=>{
+    const key = f.flightNo + '_' + f.from + '_' + f.to;
+    if(!(key in originalDepartures)){
+      originalDepartures[key] = f.date;
+    }
+    f.originalDate = originalDepartures[key];
+  });
+}
+trackOriginalDepartures(MY_FLIGHTS);
+
+async function syncScheduleFromCalendar(){
+  const statusEl = document.getElementById('syncStatus');
+  if(!CALENDAR_FEED_URL || CALENDAR_FEED_URL.startsWith("PASTE_")){
+    if(statusEl) statusEl.textContent = "Sync not configured (CALENDAR_FEED_URL not set).";
+    return;
+  }
+  try{
+    const url = CALENDAR_FEED_URL + (CALENDAR_FEED_URL.includes('?') ? '&' : '?') + 'cb=' + Date.now();
+    const res = await fetch(url, { cache: 'no-store' });
+    if(!res.ok){
+      if(statusEl) statusEl.textContent = `Sync failed: server responded with status ${res.status}. URL: ${url}`;
+      return;
+    }
+    const rawText = await res.text();
+    let data;
+    try{ data = JSON.parse(rawText); }
+    catch(parseErr){
+      if(statusEl) statusEl.textContent = `Sync parse error: ${parseErr.message}. Raw length: ${rawText.length}. First 200 chars: ${rawText.slice(0,200)}`;
+      return;
+    }
+    if(Array.isArray(data.flights) && data.flights.length){
+      trackOriginalDepartures(data.flights);
+      MY_FLIGHTS = data.flights;
+      const withAircraft = data.flights.filter(f => f.aircraft).length;
+      const commuterCount = data.flights.filter(f => f.isCommuter).length;
+      if(statusEl) statusEl.textContent = `Synced OK at ${new Date().toLocaleTimeString()} — ${data.flights.length} flights (${commuterCount} commuter), ${withAircraft} with aircraft type. [raw len: ${rawText.length}]`;
+    } else {
+      if(statusEl) statusEl.textContent = `Synced, but the feed returned zero flights. Raw length: ${rawText.length}. First 300 chars: ${rawText.slice(0,300)}`;
+    }
+  }catch(e){
+    if(statusEl) statusEl.textContent = `Sync error: ${e.message}`;
+  }
+}
+
+// Compact time for tight spaces, e.g. "3:40p" or "12:05a" instead of "3:40 PM"
+function fmtCompactTime(iso){
+  const d = new Date(iso);
+  let h = d.getHours();
+  const m = d.getMinutes();
+  const suffix = h >= 12 ? 'p' : 'a';
+  h = h % 12; if(h === 0) h = 12;
+  const mStr = m < 10 ? '0' + m : '' + m;
+  return `${h}:${mStr}${suffix}`;
+}
+
+function fmtDate(iso){
+  const d = new Date(iso);
+  return d.toLocaleDateString(undefined,{weekday:'short', month:'short', day:'numeric'}) + " · " +
+         d.toLocaleTimeString(undefined,{hour:'numeric', minute:'2-digit'});
+}
+
+// Departure date/time through arrival time, e.g. "Thu, Aug 27 · 3:40 PM → 6:41 PM"
+// (shows the arrival date too if the flight lands on a different calendar day)
+function fmtDateRange(depIso, arrIso){
+  const dep = new Date(depIso), arr = new Date(arrIso);
+  const depStr = fmtDate(depIso);
+  const arrTimeStr = arr.toLocaleTimeString(undefined,{hour:'numeric', minute:'2-digit'});
+  if(dep.toDateString() === arr.toDateString()){
+    return `${depStr} → ${arrTimeStr}`;
+  }
+  const arrDateStr = arr.toLocaleDateString(undefined,{weekday:'short', month:'short', day:'numeric'});
+  return `${depStr} → ${arrDateStr} · ${arrTimeStr}`;
+}
+
+// Departure→arrival line that shows a struck-through original time plus the new time
+// when a flight's scheduled departure has shifted (e.g. a delay), e.g.:
+// "Thu, Aug 27 · 3:40 PM → 4:15 PM · lands 6:41 PM"
+function fmtDepartureLine(flight){
+  const origIso = flight.originalDate || flight.date;
+  const changed = Math.abs(new Date(flight.date) - new Date(origIso)) > 60000; // more than a minute = real change
+  const dateLabel = new Date(origIso).toLocaleDateString(undefined,{weekday:'short', month:'short', day:'numeric'});
+  const arrTimeStr = new Date(flight.arrival).toLocaleTimeString(undefined,{hour:'numeric', minute:'2-digit'});
+
+  if(!changed){
+    return fmtDateRange(flight.date, flight.arrival);
+  }
+
+  const origTimeStr = new Date(origIso).toLocaleTimeString(undefined,{hour:'numeric', minute:'2-digit'});
+  const newTimeStr = new Date(flight.date).toLocaleTimeString(undefined,{hour:'numeric', minute:'2-digit'});
+  return `${dateLabel} · <span class="strike">${origTimeStr}</span> <span class="new-time">${newTimeStr}</span> → ${arrTimeStr}`;
+}
+
+function cityLabel(a){ return a.state ? `${a.city}, ${a.state}` : a.city; }
+
+// Returns the first non-null/undefined value among the arguments (old-Safari-safe stand-in
+// for the `??` operator, which isn't supported before Safari 13.1 / iOS 13.4).
+function firstDefined(){
+  for(let i=0; i<arguments.length; i++){
+    if(arguments[i] !== null && arguments[i] !== undefined) return arguments[i];
+  }
+  return undefined;
+}
+
+// ---- Geo helpers for in-flight stats (miles to go, nearest city + direction) ----
+function haversineMiles(lat1, lon1, lat2, lon2){
+  const R = 3958.8; // Earth radius in miles
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180) * Math.cos(lat2*Math.PI/180) * Math.sin(dLon/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+function bearingDegrees(lat1, lon1, lat2, lon2){
+  // Raw bearing in degrees from point 1 to point 2 (0-360), for numeric comparison against a
+  // real aircraft heading — bearingCompass() below rounds this to one of 8 compass directions,
+  // which isn't precise enough for that kind of check.
+  const toRad = d => d * Math.PI / 180;
+  const y = Math.sin(toRad(lon2-lon1)) * Math.cos(toRad(lat2));
+  const x = Math.cos(toRad(lat1))*Math.sin(toRad(lat2)) - Math.sin(toRad(lat1))*Math.cos(toRad(lat2))*Math.cos(toRad(lon2-lon1));
+  return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+}
+
+function bearingCompass(lat1, lon1, lat2, lon2){
+  // Compass direction from point 1 to point 2, e.g. "NW"
+  const deg = bearingDegrees(lat1, lon1, lat2, lon2);
+  const dirs = ['N','NE','E','SE','S','SW','W','NW'];
+  return dirs[Math.round(deg / 45) % 8];
+}
+
+// Resolves the direction the plane icon should point: real ADS-B heading when available (it's
+// stored as a formatted string like "199°" for display elsewhere, so it's parsed back to a
+// number here), otherwise falling back to the bearing from the current position toward the
+// destination — so the icon always at least points toward where the flight is actually headed,
+// even without a live heading reading.
+function planeHeadingDegrees(planeLat, planeLon, destLat, destLon, live){
+  if(live && live.heading != null){
+    const h = parseFloat(live.heading);
+    if(!isNaN(h)) return h;
+  }
+  return bearingDegrees(planeLat, planeLon, destLat, destLon);
+}
+
+// ---- Weather (Open-Meteo — free, no API key needed) ----
+// WMO weather codes -> icon + one-word description.
+function wmoToWeather(code){
+  if(code === 0) return { icon: '☀️', description: 'Clear' };
+  if(code === 1 || code === 2) return { icon: '🌤️', description: 'Partly Cloudy' };
+  if(code === 3) return { icon: '☁️', description: 'Cloudy' };
+  if(code === 45 || code === 48) return { icon: '🌫️', description: 'Foggy' };
+  if(code >= 51 && code <= 57) return { icon: '🌦️', description: 'Drizzle' };
+  if(code >= 61 && code <= 67) return { icon: '🌧️', description: 'Rain' };
+  if(code >= 71 && code <= 77) return { icon: '❄️', description: 'Snow' };
+  if(code >= 80 && code <= 82) return { icon: '🌧️', description: 'Showers' };
+  if(code === 85 || code === 86) return { icon: '❄️', description: 'Snow Showers' };
+  if(code >= 95) return { icon: '⛈️', description: 'Storm' };
+  return { icon: '🌡️', description: 'Mild' };
+}
+
+const weatherCache = {};
+async function getWeather(airport){
+  if(airport.lat == null) return null;
+  const key = airport.lat + ',' + airport.lon;
+  const cached = weatherCache[key];
+  if(cached && (Date.now() - cached.time) < 15 * 60000) return cached.data;
+  try{
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${airport.lat}&longitude=${airport.lon}&current=temperature_2m,weather_code&temperature_unit=fahrenheit`;
+    const res = await fetch(url);
+    if(!res.ok) return null;
+    const data = await res.json();
+    const temp = Math.round(data.current.temperature_2m);
+    const info = wmoToWeather(data.current.weather_code);
+    const result = { temp, icon: info.icon, description: info.description };
+    weatherCache[key] = { data: result, time: Date.now() };
+    return result;
+  }catch(e){
+    return null;
+  }
+}
+
+async function updateWeatherDisplay(from, to){
+  const wxFromEl = document.getElementById('wxFrom');
+  const wxToEl = document.getElementById('wxTo');
+  if(wxFromEl){
+    const w = await getWeather(from);
+    if(w) wxFromEl.textContent = `${w.icon} ${w.temp}°F ${w.description}`;
+  }
+  if(wxToEl){
+    const w = await getWeather(to);
+    if(w) wxToEl.textContent = `${w.icon} ${w.temp}°F ${w.description}`;
+  }
+}
+
+// Forecasted weather at a specific future time (for the flight-preview feature) — Open-Meteo's
+// hourly forecast is reliable up to about 15 days out; beyond that this returns null and the UI
+// shows "Forecast not available yet" rather than a stale or fabricated number.
+async function getForecastWeather(airport, targetDate){
+  if(airport.lat == null) return null;
+  const daysOut = (targetDate - new Date()) / 86400000;
+  if(daysOut < 0 || daysOut > 15) return null;
+  try{
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${airport.lat}&longitude=${airport.lon}&hourly=temperature_2m,weather_code&temperature_unit=fahrenheit&forecast_days=16&timezone=UTC`;
+    const res = await fetch(url);
+    if(!res.ok) return null;
+    const data = await res.json();
+    const targetHour = new Date(targetDate);
+    targetHour.setUTCMinutes(0,0,0);
+    const targetIso = targetHour.toISOString().slice(0,13); // "YYYY-MM-DDTHH"
+    const idx = data.hourly.time.findIndex(t => t.startsWith(targetIso));
+    if(idx === -1) return null;
+    const temp = Math.round(data.hourly.temperature_2m[idx]);
+    const info = wmoToWeather(data.hourly.weather_code[idx]);
+    return { temp, icon: info.icon, description: info.description };
+  }catch(e){
+    return null;
+  }
+}
+
+function nearestCityTo(lat, lon){
+  let best = null, bestDist = Infinity;
+  for(const code in AIRPORTS){
+    const a = AIRPORTS[code];
+    if(a.lat == null) continue;
+    const d = haversineMiles(lat, lon, a.lat, a.lon);
+    if(d < bestDist){ bestDist = d; best = a; }
+  }
+  if(!best) return null;
+  // direction from the city to the plane's current position
+  const dir = bearingCompass(best.lat, best.lon, lat, lon);
+  return { city: best, distance: Math.round(bestDist), direction: dir };
+}
+
+// Fallback mark used only if logo.png (your own uploaded United logo file) isn't found alongside
+// this HTML file — a stylized hand-drawn approximation, not the exact trademarked artwork.
+const AIRLINE_LOGO_SVG = `<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+  <path d="M50 8 C 30 8, 14 26, 14 50 C 14 50, 34 34, 50 34 C 50 34, 50 8, 50 8 Z" fill="#CF0A2C"/>
+  <path d="M50 8 C 70 8, 86 26, 86 50 C 86 50, 66 34, 50 34 C 50 34, 50 8, 50 8 Z" fill="#0057B8"/>
+  <path d="M14 50 C 14 74, 30 92, 50 92 C 50 92, 50 66, 50 66 C 50 66, 30 66, 14 50 Z" fill="#0057B8"/>
+  <path d="M86 50 C 86 74, 70 92, 50 92 C 50 92, 50 66, 50 66 C 50 66, 70 66, 86 50 Z" fill="#CF0A2C"/>
+</svg>`;
+
+function handleLogoError(img){
+  img.outerHTML = AIRLINE_LOGO_SVG;
+}
+
+function flightBadge(flight, aircraftOverride){
+  const aircraft = aircraftOverride || flight.aircraft;
+  if(flight.isCommuter){
+    return `
+      <div class="flight-badge">
+        <div class="text">
+          <div class="airline" style="color:var(--commuter);">Personal Travel</div>
+          <div class="num">${flight.flightNo}${aircraft ? ' · ' + aircraft : ''}</div>
+        </div>
+        <div class="logo" style="font-size:22px;line-height:32px;text-align:center;">✈️</div>
+      </div>`;
+  }
+  return `
+    <div class="flight-badge">
+      <div class="text">
+        <div class="airline">United Airlines</div>
+        <div class="num">${flight.flightNo}${aircraft ? ' · ' + aircraft : ''}</div>
+      </div>
+      <div class="logo"><img class="logo-img" src="logo.png" alt="United" onerror="handleLogoError(this)"></div>
+    </div>`;
+}
+
+function flightTimeAndDistance(flight, from, to){
+  let flightTime = '—';
+  const dep = new Date(flight.date), arr = new Date(flight.arrival);
+  const durMs = arr - dep;
+  if(durMs > 0){
+    const h = Math.floor(durMs / 3600000);
+    const m = Math.floor((durMs % 3600000) / 60000);
+    flightTime = (h > 0 ? `${h}h ` : '') + `${m}m`;
+  }
+  let distanceMi = '—';
+  if(from.lat != null && to.lat != null){
+    distanceMi = Math.round(haversineMiles(from.lat, from.lon, to.lat, to.lon)).toLocaleString();
+  }
+  return { flightTime, distanceMi };
+}
+
+let calendarViewDate = new Date(); // which month the calendar grid is currently showing
+
+function renderCalendar(flights){
+  const grid = document.getElementById('calendarGrid');
+  const label = document.getElementById('calMonthLabel');
+  const year = calendarViewDate.getFullYear();
+  const month = calendarViewDate.getMonth();
+  label.textContent = calendarViewDate.toLocaleDateString(undefined, {month:'long', year:'numeric'});
+
+  const firstOfMonth = new Date(year, month, 1);
+  const startOffset = firstOfMonth.getDay(); // 0 = Sunday
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const today = new Date();
+
+  // Layover = time between one flight's arrival and the next flight's departure. Computed
+  // across the FULL sorted schedule (not per-day) since connections often span midnight.
+  // Capped at 36h so it only flags real layovers/overnights, not unrelated gaps between
+  // separate trips days apart.
+  const sortedAll = [...flights].sort((a,b)=> new Date(a.date) - new Date(b.date));
+  const layoverByFlight = {};
+  for(let i = 1; i < sortedAll.length; i++){
+    const prev = sortedAll[i-1], curr = sortedAll[i];
+    const gapMs = new Date(curr.date) - new Date(prev.arrival);
+    if(gapMs > 0 && gapMs < 36 * 3600000){
+      layoverByFlight[prev.flightNo + '_' + prev.date] = gapMs;
+    }
+  }
+  function fmtLayover(ms){
+    const h = Math.floor(ms / 3600000);
+    const m = Math.floor((ms % 3600000) / 60000);
+    return (h > 0 ? `${h}h ` : '') + `${m}m`;
+  }
+
+  // Group flights by their departure day (local date) for quick lookup per calendar cell
+  const flightsByDay = {};
+  flights.forEach(f=>{
+    const d = new Date(f.date);
+    const key = d.getFullYear() + '-' + d.getMonth() + '-' + d.getDate();
+    if(!flightsByDay[key]) flightsByDay[key] = [];
+    flightsByDay[key].push(f);
+  });
+
+  let html = '';
+  ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].forEach(d=>{
+    html += `<div class="cal-weekday">${d}</div>`;
+  });
+
+  const totalCells = Math.ceil((startOffset + daysInMonth) / 7) * 7;
+  for(let i = 0; i < totalCells; i++){
+    const dayNum = i - startOffset + 1;
+    const cellDate = new Date(year, month, dayNum); // JS Date rolls negative/overflow days into adjacent months automatically
+    const otherMonth = (dayNum < 1 || dayNum > daysInMonth);
+    const key = cellDate.getFullYear() + '-' + cellDate.getMonth() + '-' + cellDate.getDate();
+    const isToday = cellDate.toDateString() === today.toDateString();
+    const dayFlights = (flightsByDay[key] || []).sort((a,b)=> new Date(a.date) - new Date(b.date));
+    const chips = dayFlights.map(f => {
+      const time = fmtCompactTime(f.date);
+      const arrTime = fmtCompactTime(f.arrival);
+      const layoverMs = layoverByFlight[f.flightNo + '_' + f.date];
+      const layoverLine = layoverMs ? `<div class="cal-layover">${fmtLayover(layoverMs)} layover</div>` : '';
+      const isPast = (new Date(f.arrival) <= today) || isMarkedLanded(f);
+      const chipClass = (f.isCommuter ? 'cal-flight-chip commuter' : 'cal-flight-chip') + ' chip-clickable';
+      const key = f.flightNo + '_' + f.date;
+      return `<div class="${chipClass}" data-flight-key="${key}" data-is-past="${isPast}"><span class="chip-time">${time}–${arrTime}</span><span class="chip-route">${f.from}→${f.to}</span></div>${layoverLine}`;
+    }).join('');
+
+    html += `<div class="cal-day ${otherMonth ? 'other-month' : ''} ${isToday ? 'today' : ''}">
+      <div class="daynum">${cellDate.getDate()}</div>
+      ${chips}
+    </div>`;
+  }
+  grid.innerHTML = html;
+}
+
+// ---- Map rendering: real OpenStreetMap tiles when the Leaflet library loaded successfully
+// (needs a live network connection — works once hosted, e.g. on Netlify), automatically
+// falling back to a dependency-free SVG drawing if Leaflet couldn't load (e.g. sandboxed
+// previews that block external resources). Either way something always renders.
+function renderMap(containerId, from, to, planeFrac, planeLive, trail, isEstimate, useFullBounds){
+  if(from.lat == null || to.lat == null){
+    const el = document.getElementById(containerId); if(el) el.innerHTML = '';
+    return;
+  }
+  if(typeof L !== 'undefined'){
+    try{
+      const map = L.map(containerId, { zoomControl:false, attributionControl:false, dragging:true, scrollWheelZoom:false });
+
+      // While actively in flight (a real position is known), zoom tightly to just the current
+      // position and the destination — the origin is already far behind and including it in the
+      // view just wastes screen space on empty ocean/land the flight has long since passed. The
+      // ground-preview map (no plane position at all) and the flight-replay view (useFullBounds)
+      // still show the full origin-to-destination route instead, since that's the whole point of
+      // those views — a preview of the planned trip, or a look back at the entire journey.
+      let lat, lon;
+      if(planeFrac != null){
+        if(planeLive){ lat = planeLive.lat; lon = planeLive.lon; }
+        else { lat = from.lat + (to.lat-from.lat)*planeFrac; lon = from.lon + (to.lon-from.lon)*planeFrac; }
+      }
+      if(planeFrac != null && !useFullBounds){
+        map.fitBounds(L.latLngBounds([lat, lon], [to.lat, to.lon]), { padding:[50,50] });
+      } else {
+        map.fitBounds(L.latLngBounds([from.lat, from.lon],[to.lat, to.lon]), { padding:[40,40] });
+      }
+
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { subdomains:'abc', maxZoom:19 }).addTo(map);
+      addRadarLayer(map);
+      L.circleMarker([from.lat, from.lon], { radius:6, color:'#3AAFA9', fillColor:'#3AAFA9', fillOpacity:1 }).addTo(map);
+      L.circleMarker([to.lat, to.lon], { radius:6, color:'#F5A623', fillColor:'#F5A623', fillOpacity:1 }).addTo(map);
+      L.polyline([[from.lat,from.lon],[to.lat,to.lon]], { color:'#EDEAE0', weight:2, dashArray:'2 8', opacity:.6 }).addTo(map);
+      // Actual breadcrumb trail of real observed positions — a solid line, distinct from the
+      // dashed straight-line route above, showing where the flight has genuinely been so far.
+      if(trail && trail.length > 1){
+        L.polyline(trail.map(p => [p.lat, p.lon]), { color:'#3AAFA9', weight:3, opacity:.85 }).addTo(map);
+      }
+      if(planeFrac != null){
+        // The ✈️ emoji renders facing roughly NE (~45°) by default across most platforms, so that
+        // offset is subtracted to align the rotation with the actual compass heading.
+        const heading = planeHeadingDegrees(lat, lon, to.lat, to.lon, planeLive);
+        const rotation = heading - 45;
+        // Estimated positions get a visually distinct marker — dimmer, with a dashed ring —
+        // so it's never mistaken for a real confirmed position at a glance.
+        const iconHtml = isEstimate
+          ? `<div style="position:relative;width:32px;height:32px;">
+               <div style="position:absolute;inset:0;border:2px dashed rgba(245,166,35,.75);border-radius:50%;"></div>
+               <div class="plane-icon" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;opacity:.55;transform:rotate(${rotation}deg);">✈️</div>
+             </div>`
+          : `<div class="plane-icon" style="transform:rotate(${rotation}deg);">✈️</div>`;
+        const iconSize = isEstimate ? [32,32] : [24,24];
+        const iconAnchor = isEstimate ? [16,16] : [12,12];
+        const planeIcon = L.divIcon({ className:'', html: iconHtml, iconSize, iconAnchor });
+        L.marker([lat, lon], { icon: planeIcon }).addTo(map);
+      }
+      return;
+    }catch(e){ /* fall through to offline drawing below */ }
+  }
+  drawRoute(containerId, from, to, planeFrac, planeLive, trail, isEstimate, useFullBounds);
+}
+
+// Live precipitation radar overlay — Iowa Environmental Mesonet (Iowa State University), a free
+// public NEXRAD mosaic service using the standard green/yellow/orange/red reflectivity scale.
+// No key needed, and it's a stable tile URL (their server always serves the latest mosaic under
+// this path), so unlike some radar APIs there's no separate timestamp lookup required first.
+function addRadarLayer(map){
+  L.tileLayer('https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/nexrad-n0q-900913/{z}/{x}/{y}.png', {
+    opacity: 0.6, zIndex: 5, attribution: 'NEXRAD &copy; IEM',
+  }).addTo(map);
+}
+
+// ---- Self-contained fallback route drawing (no map tiles, no external libraries) ----
+// Used automatically when Leaflet/OSM tiles aren't reachable (e.g. sandboxed local previews).
+function drawRoute(containerId, from, to, planeFrac, planeLive, trail, isEstimate, useFullBounds){
+  const el = document.getElementById(containerId);
+  if(!el) return;
+  if(from.lat == null || to.lat == null){ el.innerHTML = ''; return; }
+
+  // Determine the plane's position first — needed for the viewport bounds below as well as the
+  // icon itself, so it's computed once up front rather than duplicated later.
+  let planeLat, planeLon;
+  if(planeFrac != null){
+    if(planeLive){ planeLat = planeLive.lat; planeLon = planeLive.lon; }
+    else { planeLat = from.lat + (to.lat-from.lat)*planeFrac; planeLon = from.lon + (to.lon-from.lon)*planeFrac; }
+  }
+
+  const W = 600, H = containerId === 'previewMapContainer' ? 220 : 280, PAD = 50;
+  // While actively in flight, bound the viewport to just current position + destination — same
+  // as the Leaflet map — rather than the full origin-to-destination span (which, for a long
+  // route, forces a much wider zoom-out than needed for what's actually left to fly). The
+  // ground-preview map and the flight-replay view (useFullBounds) always show the full route.
+  const boundsFrom = (planeFrac != null && !useFullBounds) ? { lat: planeLat, lon: planeLon } : from;
+  const minLat = Math.min(boundsFrom.lat, to.lat), maxLat = Math.max(boundsFrom.lat, to.lat);
+  const minLon = Math.min(boundsFrom.lon, to.lon), maxLon = Math.max(boundsFrom.lon, to.lon);
+  const latSpan = Math.max(maxLat - minLat, 4);
+  const lonSpan = Math.max(maxLon - minLon, 4);
+
+  function project(lat, lon){
+    const x = PAD + ((lon - minLon) / lonSpan) * (W - 2*PAD);
+    const y = PAD + (1 - (lat - minLat) / latSpan) * (H - 2*PAD);
+    return [x, y];
+  }
+
+  const [x1,y1] = project(from.lat, from.lon);
+  const [x2,y2] = project(to.lat, to.lon);
+
+  let planeDot = '';
+  if(planeFrac != null){
+    const [px, py] = project(planeLat, planeLon);
+    // Same rotation approach as the Leaflet map: real heading when available, otherwise bearing
+    // toward the destination — offset by 45° to match the ✈️ emoji's default facing direction.
+    const heading = planeHeadingDegrees(planeLat, planeLon, to.lat, to.lon, planeLive);
+    const rotation = heading - 45;
+    // Estimated positions get a dashed ring behind them and reduced opacity, matching the
+    // Leaflet map's treatment — never mistaken for a real confirmed position at a glance.
+    const ring = isEstimate ? `<circle cx="${px}" cy="${py}" r="14" fill="none" stroke="#F5A623" stroke-width="2" stroke-dasharray="3 3" opacity=".75"/>` : '';
+    const opacity = isEstimate ? '.55' : '1';
+    planeDot = `${ring}<text x="${px}" y="${py+7}" font-size="22" text-anchor="middle" opacity="${opacity}" transform="rotate(${rotation} ${px} ${py})">✈️</text>`;
+  }
+
+  // Actual breadcrumb trail, same as the Leaflet map — a solid line through real observed
+  // positions, distinct from the dashed straight-line route.
+  let trailLine = '';
+  if(trail && trail.length > 1){
+    const points = trail.map(p => project(p.lat, p.lon).join(',')).join(' ');
+    trailLine = `<polyline points="${points}" fill="none" stroke="#3AAFA9" stroke-width="3" opacity=".85"/>`;
+  }
+
+  el.innerHTML = `
+    <svg class="fallback-route-svg" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <pattern id="grid-${containerId}" width="30" height="30" patternUnits="userSpaceOnUse">
+          <path d="M 30 0 L 0 0 0 30" fill="none" stroke="rgba(255,255,255,.04)" stroke-width="1"/>
+        </pattern>
+      </defs>
+      <rect width="${W}" height="${H}" fill="url(#grid-${containerId})"/>
+      <text x="8" y="16" font-size="9" fill="rgba(255,255,255,.35)" font-family="monospace">offline map (fallback)</text>
+      <line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="#EDEAE0" stroke-width="2" stroke-dasharray="2 8" opacity=".6"/>
+      ${trailLine}
+      <circle cx="${x1}" cy="${y1}" r="6" fill="#3AAFA9"/>
+      <circle cx="${x2}" cy="${y2}" r="6" fill="#F5A623"/>
+      ${planeDot}
+    </svg>`;
+}
+
+function renderGroundBoard(nextFlight, recentlyLanded, lastCompletedFlight){
+  const eyebrow = document.getElementById('boardEyebrow');
+  const badgeSlot = document.getElementById('boardBadge');
+  eyebrow.classList.remove('flying');
+  nextFlightGlobal = nextFlight || null;
+
+  // "Landed at (City) X min ago" banner — shown for up to 45 minutes after arrival, but hidden
+  // early if the next flight is already within 30 minutes of its own departure (at that point
+  // the countdown/next-up info below takes priority instead).
+  let landedLine = '';
+  if(recentlyLanded){
+    const minsAgo = Math.round((Date.now() - new Date(recentlyLanded.arrival).getTime()) / 60000);
+    const nextDepMinsAway = nextFlight ? (new Date(nextFlight.date) - Date.now()) / 60000 : Infinity;
+    if(minsAgo >= 0 && minsAgo <= 45 && nextDepMinsAway > 30){
+      const landedCity = cityLabel(airportInfo(recentlyLanded.to));
+      landedLine = `<div class="landed-banner">Landed at ${landedCity} ${minsAgo} min${minsAgo === 1 ? '' : 's'} ago</div>`;
+    }
+  }
+
+  if(!nextFlight){
+    eyebrow.textContent = 'Home';
+    eyebrow.classList.add('ground');
+    eyebrow.classList.remove('commuter');
+    badgeSlot.innerHTML = '';
+    document.getElementById('boardBody').innerHTML = `${landedLine}<div class="ground-msg">Not currently flying. <b>No trips scheduled.</b></div>`;
+    return;
+  }
+
+  // "Commuting" as the header is only accurate when the commute is actually imminent — showing
+  // it a day or more ahead of an upcoming commuter flight is misleading, since nothing commuting-
+  // related is happening yet. Falls back to the normal Home/Layover logic outside that window.
+  const HOME_AIRPORTS = ['FLL', 'DJT', 'MIA'];
+  const hoursUntilNext = (new Date(nextFlight.date) - new Date()) / 3600000;
+  const commuteImminent = nextFlight.isCommuter && hoursUntilNext <= 12;
+
+  if(commuteImminent){
+    eyebrow.textContent = 'Commuting';
+    eyebrow.classList.add('ground', 'commuter');
+  } else {
+    // If the last completed flight was a personal commuter flight landing at one of the known
+    // home-area airports, that's genuinely "arrived home" — not a work-trip layover — so it's
+    // called out directly rather than showing "Layover in West Palm Beach" etc.
+    const arrivedHome = lastCompletedFlight
+      && lastCompletedFlight.isCommuter
+      && HOME_AIRPORTS.includes(lastCompletedFlight.to);
+
+    if(arrivedHome){
+      eyebrow.textContent = 'Home';
+      eyebrow.classList.add('ground');
+      eyebrow.classList.remove('commuter');
+    } else {
+      // Current location is wherever the last flight actually landed — not necessarily the same
+      // as the next flight's departure city, if there's a gap before it (e.g. a return commuter
+      // leg hasn't been booked yet). Only falls back to the next flight's departure if there's
+      // no flight history at all yet to go on.
+      const currentAirportCode = lastCompletedFlight ? lastCompletedFlight.to : nextFlight.from;
+      const currentCity = cityLabel(airportInfo(currentAirportCode));
+      eyebrow.textContent = `Layover in ${currentCity}`;
+      eyebrow.classList.add('ground');
+      eyebrow.classList.remove('commuter');
+    }
+  }
+
+  const body = document.getElementById('boardBody');
+  const from = airportInfo(nextFlight.from), to = airportInfo(nextFlight.to);
+  badgeSlot.innerHTML = flightBadge(nextFlight);
+  const { flightTime, distanceMi } = flightTimeAndDistance(nextFlight, from, to);
+
+  // Commuter flights show as "Commuting flight" here rather than literal airport codes — the
+  // route itself isn't the interesting part of a personal commute the way it is for a work trip.
+  const nextUpText = nextFlight.isCommuter
+    ? `Commuting flight · ${cityLabel(from)} → ${cityLabel(to)}`
+    : `${cityLabel(from)} → ${cityLabel(to)}`;
+
+  body.innerHTML = `
+    ${landedLine}
+    <div class="ground-msg">Not currently flying</div>
+    <div class="next-up">Next up: <b>${nextUpText}</b></div>
+    <div class="next-up-date">${fmtDepartureLine(nextFlight)}</div>
+    <div class="route-line" style="margin-top:16px;">
+      <div class="airport">${nextFlight.from}<span class="city">${cityLabel(from)}</span><span class="weather" id="wxFrom">…</span></div>
+      <div class="mid-column"><div class="countdown countdown-inline" id="countdown">—</div></div>
+      <div class="airport end">${nextFlight.to}<span class="city">${cityLabel(to)}</span><span class="weather" id="wxTo">…</span></div>
+    </div>
+    <div id="previewMapContainer"></div>
+    <div class="stat-row">
+      <div class="stat"><div class="v">${flightTime}</div><div class="l">Flight Time</div></div>
+      <div class="stat"><div class="v">${distanceMi}</div><div class="l">Miles</div></div>
+    </div>`;
+  updateCountdown();
+  updateWeatherDisplay(from, to);
+  renderMap('previewMapContainer', from, to, null, null);
+}
+
+function updateCountdown(){
+  const el = document.getElementById('countdown');
+  if(!el || !nextFlightGlobal) return;
+  const currentDep = new Date(nextFlightGlobal.date);
+  const diff = currentDep - new Date();
+
+  if(diff > 0){
+    const d = Math.floor(diff / 86400000);
+    const h = Math.floor((diff % 86400000) / 3600000);
+    const m = Math.floor((diff % 3600000) / 60000);
+    const parts = [];
+    if(d) parts.push(`${d}d`);
+    if(d || h) parts.push(`${h}h`);
+    parts.push(`${m}m`);
+    el.textContent = parts.join(' ') + ' until takeoff';
+    el.classList.remove('delayed');
+    return;
+  }
+
+  // Past the latest known departure estimate — run the elapsed timer off the ORIGINAL
+  // scheduled time so it reflects total delay, not just time since the last update.
+  const origDep = new Date(nextFlightGlobal.originalDate || nextFlightGlobal.date);
+  const elapsedMs = new Date() - origDep;
+  const elapsedMin = Math.floor(elapsedMs / 60000);
+  if(elapsedMin < 5){
+    el.textContent = 'Departing soon';
+  } else {
+    const h = Math.floor(elapsedMs / 3600000);
+    const m = Math.floor((elapsedMs % 3600000) / 60000);
+    const parts = [];
+    if(h) parts.push(`${h}h`);
+    parts.push(`${m}m`);
+    el.textContent = 'Delayed ' + parts.join(' ');
+  }
+  el.classList.add('delayed');
+}
+
+// Tracks real observed positions for the flight currently being displayed, so the map can draw
+// an actual breadcrumb trail from takeoff to now — not just the straight dashed line to the
+// destination. Only real live positions are recorded (not the estimated fallback, which is
+// always exactly on that straight line anyway and would add nothing). Stored centrally on the
+// same Apps Script backend everything else syncs from: when a different flight starts being
+// tracked, the trail-so-far (possibly recorded by another device, e.g. the kiosk) is pulled down
+// first, then each new point is pushed back up as it's observed — so opening the page mid-flight
+// on a different device shows the real trail from takeoff, not just from that moment on.
+let breadcrumbTrail = [];
+let breadcrumbFlightKey = null;
+
+async function fetchServerTrail(key){
+  try{
+    const sep = CALENDAR_FEED_URL.includes('?') ? '&' : '?';
+    const url = `${CALENDAR_FEED_URL}${sep}getTrail=1&flightKey=${encodeURIComponent(key)}&cb=${Date.now()}`;
+    const res = await fetch(url, { cache: 'no-store' });
+    const data = await res.json();
+    return Array.isArray(data.trail) ? data.trail : [];
+  }catch(e){
+    return [];
+  }
+}
+
+function recordServerPosition(key, lat, lon){
+  const sep = CALENDAR_FEED_URL.includes('?') ? '&' : '?';
+  const url = `${CALENDAR_FEED_URL}${sep}recordPosition=1&flightKey=${encodeURIComponent(key)}&lat=${lat}&lon=${lon}&cb=${Date.now()}`;
+  fetch(url, { cache: 'no-store' }).catch(() => {}); // fire-and-forget — doesn't block rendering
+}
+
+async function recordBreadcrumb(flight, live){
+  if(!live || live.lat == null) return;
+  const key = flight.flightNo + '_' + flight.date;
+  if(key !== breadcrumbFlightKey){
+    breadcrumbFlightKey = key;
+    breadcrumbTrail = await fetchServerTrail(key); // pick up any trail-so-far from another device
+  }
+  const last = breadcrumbTrail[breadcrumbTrail.length - 1];
+  // Skip near-duplicate points (e.g. two polls in a row with almost no movement) to keep the
+  // trail meaningful rather than cluttered.
+  if(!last || haversineMiles(last.lat, last.lon, live.lat, live.lon) > 0.5){
+    breadcrumbTrail.push({ lat: live.lat, lon: live.lon, t: Date.now() });
+    recordServerPosition(key, live.lat, live.lon);
+  }
+}
+
+// Fetches the airline's own updated arrival estimate (AeroDataBox's revised time — the same
+// real data Google Flights surfaces) for whichever flight is currently being tracked. Throttled
+// to once per 10 minutes per flight (matching the backend's own cache window), since this is a
+// real API call and there's no reason to repeat it every 30-second refresh cycle.
+let revisedArrivalCache = {};
+async function getRevisedArrival(flight){
+  const key = flight.flightNo + '_' + flight.date;
+  const cached = revisedArrivalCache[key];
+  if(cached && Date.now() - cached.fetchedAt < 10 * 60000) return cached.value;
+
+  try{
+    const sep = CALENDAR_FEED_URL.includes('?') ? '&' : '?';
+    const url = `${CALENDAR_FEED_URL}${sep}revisedArrival=1&flightNo=${encodeURIComponent(flight.flightNo)}&date=${encodeURIComponent(flight.date)}&cb=${Date.now()}`;
+    const res = await fetch(url, { cache: 'no-store' });
+    const data = await res.json();
+    const value = (data.found && data.revisedArrivalUtc) ? new Date(data.revisedArrivalUtc) : null;
+    revisedArrivalCache[key] = { value, fetchedAt: Date.now() };
+    return value;
+  }catch(e){
+    revisedArrivalCache[key] = { value: null, fetchedAt: Date.now() };
+    return null;
+  }
+}
+
+async function renderFlyingBoard(flight, live){
+  const eyebrow = document.getElementById('boardEyebrow');
+  eyebrow.classList.remove('ground');
+  eyebrow.classList.add('flying');
+  if(flight.isCommuter){
+    eyebrow.textContent = 'Commuting — In the Air';
+    eyebrow.classList.add('commuter');
+  } else {
+    eyebrow.textContent = 'In the air right now';
+    eyebrow.classList.remove('commuter');
+  }
+  const body = document.getElementById('boardBody');
+  const from = airportInfo(flight.from), to = airportInfo(flight.to);
+
+  // Prefer a real, live-confirmed position. When no live signal is available (ground-based ADS-B
+  // has real coverage gaps over sparsely-populated areas), fall back to a schedule-based estimate
+  // so the board always shows something rather than going blank — capped short of the destination
+  // so it never falsely claims "arrived" if a delay has pushed the real landing later than the
+  // calendar's current estimate.
+  const hasLive = !!(live && live.lat != null && live.lon != null);
+  let planeLat, planeLon, isEstimate = false;
+  if(hasLive){
+    planeLat = live.lat; planeLon = live.lon;
+  } else {
+    const trailKey = flight.flightNo + '_' + flight.date;
+    const arr = new Date(flight.arrival);
+    if(trailKey === breadcrumbFlightKey && breadcrumbTrail.length > 0){
+      // Hybrid estimate: anchor on the last confirmed real position, then nudge it toward the
+      // destination in proportion to how much of the REMAINING scheduled time has passed since
+      // that position was recorded — not the plane's total scheduled journey from origin. Right
+      // after a signal drop this stays very close to the last real spot (avoiding the old wild
+      // jump during a ground delay or right after takeoff), while still creeping realistically
+      // toward the destination if the gap genuinely runs long, rather than staying frozen forever.
+      const last = breadcrumbTrail[breadcrumbTrail.length - 1];
+      const lastTime = last.t ? new Date(last.t) : new Date(flight.date);
+      const remainingAtLastKnown = arr - lastTime;
+      const elapsedSinceLastKnown = new Date() - lastTime;
+      const frac = remainingAtLastKnown > 0
+        ? Math.min(0.97, Math.max(0, elapsedSinceLastKnown / remainingAtLastKnown))
+        : 0;
+      planeLat = last.lat + (to.lat - last.lat) * frac;
+      planeLon = last.lon + (to.lon - last.lon) * frac;
+    } else {
+      // No real position recorded yet for this flight at all (e.g. right at the very start,
+      // before the first live signal has come in) — schedule-based is the only thing to go on.
+      const dep = new Date(flight.date);
+      const totalMs = arr - dep;
+      const fracRaw = totalMs > 0 ? (new Date() - dep) / totalMs : 0.5;
+      const frac = Math.min(0.97, Math.max(0, fracRaw));
+      planeLat = from.lat + (to.lat - from.lat) * frac;
+      planeLon = from.lon + (to.lon - from.lon) * frac;
+    }
+    isEstimate = true;
+  }
+  // Whichever position was just computed (live or estimated) is exactly what gets drawn on the
+  // map — using the same value for both the text stats and the map icon guarantees they can
+  // never disagree with each other.
+  const mapPlanePosition = { lat: planeLat, lon: planeLon };
+
+  let timeToLand = '—';
+  const msLeft = new Date(flight.arrival) - new Date();
+  if(msLeft > 5 * 60000){
+    const h = Math.floor(msLeft / 3600000);
+    const m = Math.floor((msLeft % 3600000) / 60000);
+    timeToLand = (h > 0 ? `${h}h ` : '') + `${m}m`;
+  } else if(msLeft > 0 || hasLive){
+    timeToLand = 'Landing soon';
+  } else {
+    // Past the scheduled arrival with no live confirmation — be honest that this is stale
+    // rather than falsely asserting the flight has landed or is exactly on schedule.
+    timeToLand = 'Overdue';
+  }
+
+  let milesToGo = '—';
+  if(to.lat != null && planeLat != null){
+    milesToGo = Math.round(haversineMiles(planeLat, planeLon, to.lat, to.lon)).toLocaleString();
+  }
+
+  // Arrival time display, matching the same "strike through scheduled, show updated" pattern
+  // used elsewhere in this app for delayed departures. Priority for the updated time:
+  //   1. The airline's own updated ETA (AeroDataBox's revised time) — the same real, official
+  //      figure a Google search would show, reflecting actual ATC/gate/routing delays.
+  //   2. Our own live-speed-based estimate — real remaining distance ÷ current groundspeed,
+  //      used only if the airline hasn't published a revised time for some reason.
+  // The scheduled time is only struck through if the updated time actually differs meaningfully
+  // (3+ minutes) — otherwise "on time" would just be noise, not useful correction.
+  const scheduledTimeStr = new Date(flight.arrival).toLocaleTimeString(undefined,{hour:'numeric',minute:'2-digit'});
+  let updatedArrival = null, updatedArrivalSource = null;
+  const revisedArrival = hasLive ? await getRevisedArrival(flight) : null;
+  if(revisedArrival){
+    updatedArrival = revisedArrival; updatedArrivalSource = 'updated';
+  } else if(hasLive && live.speed && to.lat != null){
+    const remainingMiles = haversineMiles(planeLat, planeLon, to.lat, to.lon);
+    const speedMph = live.speed * 1.15078; // knots to mph
+    if(speedMph > 20){ // sanity floor — avoids a wild ETA from a near-zero groundspeed reading
+      const hoursRemaining = remainingMiles / speedMph;
+      updatedArrival = new Date(Date.now() + hoursRemaining * 3600000);
+      updatedArrivalSource = 'live est.';
+    }
+  }
+
+  let arrivingLabel;
+  if(updatedArrival && Math.abs(updatedArrival - new Date(flight.arrival)) / 60000 >= 3){
+    const updatedTimeStr = updatedArrival.toLocaleTimeString(undefined,{hour:'numeric',minute:'2-digit'});
+    arrivingLabel = `Arriving <span class="strike">${scheduledTimeStr}</span> <b style="color:var(--teal);">${updatedTimeStr}</b> <span style="font-size:10px;color:var(--dim);">(${updatedArrivalSource})</span>`;
+  } else {
+    arrivingLabel = `Arriving ${scheduledTimeStr}`;
+  }
+
+  // nearest city + direction, e.g. "143 mi NW of Chicago, IL" — labeled clearly when estimated
+  let locationLine = '';
+  if(planeLat != null){
+    const nearest = nearestCityTo(planeLat, planeLon);
+    if(nearest && nearest.distance > 0){
+      const prefix = isEstimate ? '📍 (estimated) ' : '📍 ';
+      locationLine = `<div class="location-line">${prefix}${nearest.distance} mi ${nearest.direction} of ${cityLabel(nearest.city)}</div>`;
+    }
+  }
+  // Temporary diagnostic — shows exactly why live tracking wasn't used, so we can tell a real
+  // coverage gap apart from a genuine bug (e.g. a CORS block or repeated errors).
+  const debugLine = (isEstimate && lastAdsbDebug.length)
+    ? `<div class="location-line" style="opacity:.6;font-size:11px;">🛰 ${lastAdsbDebug.join(' | ')}</div>`
+    : '';
+
+  // Real-distance flight progress bar, with the "time until landing" countdown stacked directly
+  // above it — both now live in the middle column between the two airport codes, freeing up the
+  // full-width row this used to occupy so the map below can be made taller instead.
+  let progressBar = '';
+  if(planeLat != null && from.lat != null && to.lat != null){
+    const totalDist = haversineMiles(from.lat, from.lon, to.lat, to.lon);
+    const traveled = haversineMiles(from.lat, from.lon, planeLat, planeLon);
+    const pct = totalDist > 0 ? Math.min(100, Math.max(0, (traveled / totalDist) * 100)) : 0;
+    progressBar = `
+      <div class="mid-column">
+        <div class="time-to-land-inline">${timeToLand} <span class="l">until landing</span></div>
+        <div class="progress-track">
+          <div class="progress-fill" style="width:${pct}%;"></div>
+          <div class="progress-plane" style="left:${pct}%;">✈️</div>
+        </div>
+      </div>`;
+  }
+
+  document.getElementById('boardBadge').innerHTML = flightBadge(flight, live && live.aircraftType);
+  const estimateBanner = isEstimate
+    ? `<div class="estimate-warning">⚠ ESTIMATED POSITION — live signal not currently available</div>`
+    : '';
+  body.innerHTML = `
+    ${estimateBanner}
+    <div class="route-line">
+      <div class="airport">${flight.from}<span class="city">${cityLabel(from)}</span><span class="weather" id="wxFrom">…</span><span class="tag">Departed ${new Date(flight.date).toLocaleTimeString(undefined,{hour:'numeric',minute:'2-digit'})}</span></div>
+      ${progressBar}
+      <div class="airport end">${flight.to}<span class="city">${cityLabel(to)}</span><span class="weather" id="wxTo">…</span><span class="tag">${arrivingLabel}</span></div>
+    </div>
+    ${locationLine}
+    ${debugLine}
+    <div id="mapContainer"></div>
+    <div class="stat-row">
+      <div class="stat"><div class="v">${firstDefined(live && live.aircraftType, flight.aircraft, '—')}</div><div class="l">Aircraft</div></div>
+      <div class="stat"><div class="v">${firstDefined(live && live.altitude, '—')}</div><div class="l">Altitude (ft)</div></div>
+      <div class="stat"><div class="v">${firstDefined(live && live.speed, '—')}</div><div class="l">Speed (kt)</div></div>
+      <div class="stat"><div class="v">${firstDefined(live && live.heading, '—')}</div><div class="l">Heading</div></div>
+      <div class="stat"><div class="v">${milesToGo}</div><div class="l">Miles to Go</div></div>
+    </div>`;
+
+  // Map always shows a plane icon at exactly the same position used for the stats above.
+  if(hasLive) await recordBreadcrumb(flight, live);
+  renderMap('mapContainer', from, to, 1, mapPlanePosition, breadcrumbTrail, isEstimate);
+  updateWeatherDisplay(from, to);
+}
+
+// Diagnostic record of the most recent lookup attempt — shown on the flying board so a real
+// failure reason is visible instead of guessed.
+let lastAdsbDebug = [];
+
+async function tryLiveLookup(callsign){
+  lastAdsbDebug = [];
+  // Routed through our own Apps Script backend (fetchLivePosition in calendar-sync.gs) instead
+  // of calling adsb.one/adsb.lol directly from the browser — those services appear to block
+  // direct cross-origin browser requests (CORS), which was silently failing every lookup.
+  // A server-side call from Apps Script isn't subject to that restriction.
+  if(!CALENDAR_FEED_URL || CALENDAR_FEED_URL.startsWith("PASTE_")){
+    lastAdsbDebug.push('live proxy: CALENDAR_FEED_URL not configured');
+    return null;
+  }
+  try{
+    const sep = CALENDAR_FEED_URL.includes('?') ? '&' : '?';
+    const url = `${CALENDAR_FEED_URL}${sep}live=${encodeURIComponent(callsign)}&cb=${Date.now()}`;
+    const res = await fetch(url, { cache: 'no-store' });
+    if(!res.ok){
+      lastAdsbDebug.push(`live proxy: HTTP ${res.status}`);
+      return null;
+    }
+    const data = await res.json();
+    if(!data.found){
+      lastAdsbDebug.push(`live proxy: no aircraft found for "${callsign}"`);
+      return null;
+    }
+    lastAdsbDebug.push(`live proxy: OK (lat=${data.lat}, lon=${data.lon})`);
+    const result = {
+      icao24: data.icao24,
+      lat: data.lat,
+      lon: data.lon,
+      altitude: data.altitude,
+      speed: data.speed,
+      heading: data.heading != null ? data.heading + '°' : null,
+      onGround: data.onGround,
+    };
+    result.aircraftType = await lookupAircraftType(result.icao24);
+    return result;
+  }catch(e){
+    lastAdsbDebug.push(`live proxy: fetch failed (${e.message})`);
+    return null;
+  }
+}
+
+async function lookupAircraftType(icao24){
+  // hexdb.io — free, keyless aircraft registry lookup by ICAO24/Mode-S hex.
+  if(!icao24) return null;
+  try{
+    const res = await fetch(`https://hexdb.io/api/v1/aircraft/${icao24}`);
+    if(!res.ok) return null;
+    const data = await res.json();
+    if(!data || data.status === '404' || !data.Manufacturer) return null;
+    return `${data.Manufacturer} ${data.ICAOTypeCode || data.Type || ''}`.trim();
+  }catch(e){
+    return null;
+  }
+}
+
+// Once we've directly observed a specific flight land — either the "on ground" flag, or the
+// aircraft getting genuinely close to its destination at low altitude — that instance is marked
+// landed permanently (keyed by flight number + scheduled departure, so it's specific to this one
+// flight, not just the callsign). This means a later reuse of the same callsign for a different,
+// unrelated leg (common on short multi-leg rotations) can never be mistaken for this flight still
+// being airborne, no matter how much later it reappears — a real fix, not just a time guess.
+function landedFlightKey(flight){ return flight.flightNo + '_' + flight.date; }
+function isMarkedLanded(flight){
+  try{
+    const keys = JSON.parse(localStorage.getItem('landedFlightKeys') || '[]');
+    return keys.includes(landedFlightKey(flight));
+  }catch(e){ return false; }
+}
+function markLanded(flight){
+  try{
+    const keys = JSON.parse(localStorage.getItem('landedFlightKeys') || '[]');
+    const key = landedFlightKey(flight);
+    if(!keys.includes(key)){
+      keys.push(key);
+      // Light cleanup: keep at most the most recent 100 entries so this never grows unbounded.
+      const trimmed = keys.slice(-100);
+      localStorage.setItem('landedFlightKeys', JSON.stringify(trimmed));
+    }
+  }catch(e){ /* storage unavailable — landing just won't be remembered across reloads */ }
+}
+
+async function refresh(){
+  const now = new Date();
+  const clockEl = document.getElementById('clock');
+  if(clockEl) clockEl.textContent = now.toLocaleTimeString();
+
+  const upcoming = MY_FLIGHTS.filter(f => new Date(f.date) > now)
+                             .sort((a,b)=> new Date(a.date)-new Date(b.date));
+
+  // Most recently concluded flight (by scheduled arrival) — used for the brief "Landed at
+  // (City) X min ago" banner on the ground board. Bounded to the last few hours so a much older
+  // flight never resurfaces as "recently landed" after a long gap with nothing scheduled.
+  const recentlyLanded = MY_FLIGHTS
+    .filter(f => new Date(f.arrival) <= now && now - new Date(f.arrival) <= 3 * 3600000)
+    .sort((a,b) => new Date(b.arrival) - new Date(a.arrival))[0] || null;
+
+  // The single most recent completed flight, with NO time bound — used to determine actual
+  // current location (wherever the last flight actually landed), regardless of how long ago
+  // that was. This matters whenever there's a multi-day gap before the next scheduled flight
+  // (e.g. a commuter return leg hasn't been booked yet) — the next flight's departure city is
+  // not necessarily where you actually are right now, but your last landing spot always is.
+  const lastCompletedFlight = MY_FLIGHTS
+    .filter(f => new Date(f.arrival) <= now)
+    .sort((a,b) => new Date(b.arrival) - new Date(a.arrival))[0] || null;
+
+  // Primary candidate: within the normal scheduled window, with a modest post-arrival grace
+  // period for ordinary taxi-in/deplaning delay (not a multi-hour buffer — see below for that).
+  const scheduleCandidate = MY_FLIGHTS.find(f=>{
+    const dep = new Date(f.date), arr = new Date(f.arrival);
+    return now >= new Date(dep.getTime() - 20*60000) && now <= new Date(arr.getTime() + 45*60000);
+  });
+
+  // Secondary candidate: already past that window, but only worth checking live tracking for —
+  // if it's genuinely still airborne (a real delay beyond the schedule's current estimate),
+  // live confirmation will show that and we keep displaying it. If not, we don't linger on it.
+  // The confirmed-landed check above is the real safeguard against callsign reuse; this time
+  // bound is just a secondary fallback in case we never got a live signal close enough to
+  // directly confirm landing (e.g. ADS-B coverage dropped out before final approach).
+  const lateCandidate = !scheduleCandidate ? MY_FLIGHTS
+    .filter(f => new Date(f.arrival).getTime() + 45*60000 < now)
+    .filter(f => now - new Date(f.arrival) <= 4 * 3600000)
+    .sort((a,b) => new Date(b.date) - new Date(a.date))[0] : null;
+
+  const candidate = scheduleCandidate || lateCandidate;
+
+  if(candidate){
+    const alreadyLocked = isMarkedLanded(candidate);
+    const live = await tryLiveLookup(candidate.callsign);
+    const hasLiveSignal = !!(live && live.lat != null);
+    const confirmedOnGround = !!(live && live.onGround);
+
+    // Heading plausibility check — only applied once a flight is past its normal scheduled
+    // window (a flight still within its expected window can legitimately be flying an indirect
+    // routing, so this is deliberately not checked there). If the aircraft's actual heading is
+    // nowhere close to the bearing toward its destination, this is very unlikely to genuinely be
+    // this flight inbound to that airport — most likely a same-day reused callsign for a
+    // different, unrelated leg (e.g. heading back the opposite direction).
+    let headingPlausible = true;
+    if(!scheduleCandidate && hasLiveSignal && live.heading != null && !confirmedOnGround){
+      const destInfo = airportInfo(candidate.to);
+      if(destInfo){
+        const bearingToDest = bearingDegrees(live.lat, live.lon, destInfo.lat, destInfo.lon);
+        const actualHeading = parseFloat(live.heading); // live.heading is a formatted string like "199°"
+        let diff = Math.abs(actualHeading - bearingToDest);
+        if(diff > 180) diff = 360 - diff;
+        if(diff > 90) headingPlausible = false;
+      }
+    }
+    const validSignal = hasLiveSignal && headingPlausible;
+
+    // Proximity check: close to the destination at low altitude means landing is genuinely
+    // imminent. This locks the flight number now (protecting against a same-day reused callsign
+    // for a later, unrelated leg being mistaken for this one) — but doesn't switch the display to
+    // "landed" by itself. It keeps showing real flight progress (naturally reading as "Landing
+    // soon" once close enough) until we either lose the signal or get a genuine on-ground
+    // confirmation, whichever comes first.
+    let nearDestination = false;
+    if(hasLiveSignal && !confirmedOnGround){
+      const destInfo = airportInfo(candidate.to);
+      if(destInfo){
+        const distMi = haversineMiles(live.lat, live.lon, destInfo.lat, destInfo.lon);
+        if(distMi <= 15 && (live.altitude == null || live.altitude <= 3000)) nearDestination = true;
+      }
+    }
+    if(nearDestination && !alreadyLocked) markLanded(candidate);
+    const locked = alreadyLocked || nearDestination;
+
+    if(locked && (!validSignal || confirmedOnGround)){
+      // Either there's no valid signal for this flight anymore (gone, or clearly a different
+      // leg by heading) or the feed directly confirms it's on the ground — genuinely done flying.
+      renderGroundBoard(upcoming[0], recentlyLanded, lastCompletedFlight);
+    } else if(scheduleCandidate || validSignal){
+      // Still getting a real, plausible signal (or within the normal scheduled window) — keep
+      // showing it as actually in progress, even if already locked as landing-imminent.
+      await renderFlyingBoard(candidate, live);
+    } else {
+      // No valid live signal at all and past the scheduled window — nothing left to show for it.
+      renderGroundBoard(upcoming[0], recentlyLanded, lastCompletedFlight);
+    }
+  } else {
+    renderGroundBoard(upcoming[0], recentlyLanded, lastCompletedFlight);
+  }
+  renderCalendar(MY_FLIGHTS);
+}
+
+refresh();
+setInterval(refresh, 30000);           // live position / board refresh
+setInterval(updateCountdown, 15000);   // countdown tick (minutes-only, no need to run every second)
+syncScheduleFromCalendar().then(refresh).then(renderManualFlightsList);
+setInterval(() => syncScheduleFromCalendar().then(refresh).then(renderManualFlightsList), 15 * 60000); // re-check calendar every 15 min
+document.getElementById('syncNowBtn').addEventListener('click', () => {
+  document.getElementById('syncStatus').textContent = 'Syncing…';
+  syncScheduleFromCalendar().then(refresh);
+});
+document.getElementById('calPrev').addEventListener('click', () => {
+  calendarViewDate = new Date(calendarViewDate.getFullYear(), calendarViewDate.getMonth() - 1, 1);
+  renderCalendar(MY_FLIGHTS);
+});
+document.getElementById('calNext').addEventListener('click', () => {
+  calendarViewDate = new Date(calendarViewDate.getFullYear(), calendarViewDate.getMonth() + 1, 1);
+  renderCalendar(MY_FLIGHTS);
+});
+
+// Calendar peek button: toggles between the current-flight view and the calendar. First tap
+// scrolls down to the calendar and starts a 60-second auto-return timer (in case someone leaves
+// it up and walks away). A second tap while the calendar is showing jumps back to the top right
+// away instead of waiting out the timer.
+let calendarPeekTimer = null;
+let showingCalendar = false;
+// Refresh button: forces a genuinely fresh reload of the page itself, bypassing any cached
+// copy — useful on the kiosk specifically, so a new deployment can be picked up with one tap
+// instead of needing to SSH in and reboot the whole device.
+document.getElementById('refreshBtn').addEventListener('click', () => {
+  const btn = document.getElementById('refreshBtn');
+  btn.classList.add('spinning');
+  const url = window.location.origin + window.location.pathname + '?cb=' + Date.now();
+  window.location.href = url;
+});
+
+document.getElementById('calendarPeekBtn').addEventListener('click', () => {
+  if(calendarPeekTimer){ clearTimeout(calendarPeekTimer); calendarPeekTimer = null; }
+
+  if(showingCalendar){
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    showingCalendar = false;
+  } else {
+    const calSection = document.querySelector('.cal-header');
+    if(calSection) calSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    showingCalendar = true;
+    calendarPeekTimer = setTimeout(() => {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      showingCalendar = false;
+      calendarPeekTimer = null;
+    }, 60000);
+  }
+});
+
+// Manual drag-to-scroll: some budget touchscreens report as a plain pointer/mouse device rather
+// than true multi-touch, so the browser's native touch-scroll gesture never fires even though
+// basic drag input works fine (which is why Leaflet's map panning — which reads raw pointer
+// movement itself — still works). This recreates that same manual approach for the whole page.
+(function enableDragScroll(){
+  let dragging = false, startY = 0, startScroll = 0;
+
+  function insideMap(target){
+    return target.closest && target.closest('#mapContainer, #previewMapContainer');
+  }
+
+  document.addEventListener('pointerdown', (e) => {
+    if(insideMap(e.target)) return; // let Leaflet handle dragging within the map itself
+    dragging = true;
+    startY = e.clientY;
+    startScroll = window.scrollY;
+  });
+  document.addEventListener('pointermove', (e) => {
+    if(!dragging) return;
+    const delta = e.clientY - startY;
+    window.scrollTo({ top: startScroll - delta });
+  });
+  document.addEventListener('pointerup', () => { dragging = false; });
+  document.addEventListener('pointercancel', () => { dragging = false; });
+})();
+
+// Manual flight entry form: posts to the same Apps Script backend everything else syncs from,
+// so a flight added on one device (e.g. your phone) shows up on every other device (e.g. the
+// kiosk) the next time it syncs — not just the browser it was added from.
+const MANUAL_CALLSIGN_PREFIXES = {
+  UA: "UAL", AA: "AAL", DL: "DAL", WN: "SWA", B6: "JBU",
+  AS: "ASA", F9: "FFT", NK: "NKS", HA: "HAL", G4: "AAY",
+};
+
+function renderManualFlightsList(){
+  const list = MY_FLIGHTS.filter(f => f.isManual);
+  const el = document.getElementById('manFlightsList');
+  if(!list.length){
+    el.innerHTML = '<div style="color:var(--dim);font-size:12px;">No manually-added flights.</div>';
+    return;
+  }
+  el.innerHTML = list.map(f => `
+    <div style="display:flex;justify-content:space-between;align-items:center;background:var(--panel-2);border-radius:6px;padding:6px 10px;margin-bottom:4px;font-family:'IBM Plex Mono',monospace;font-size:12px;">
+      <span>${f.flightNo} ${f.from}→${f.to} · ${new Date(f.date).toLocaleString()}</span>
+      <button data-id="${f.id}" class="manRemoveBtn" style="background:none;border:none;color:var(--dim);cursor:pointer;font-size:14px;">✕</button>
+    </div>`).join('');
+  el.querySelectorAll('.manRemoveBtn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const id = btn.getAttribute('data-id');
+      btn.disabled = true;
+      try{
+        const url = CALENDAR_FEED_URL + (CALENDAR_FEED_URL.includes('?') ? '&' : '?') + 'removeFlight=' + encodeURIComponent(id) + '&cb=' + Date.now();
+        await fetch(url, { cache: 'no-store' });
+        await syncScheduleFromCalendar();
+        renderManualFlightsList();
+      }catch(e){
+        alert('Could not remove flight — check your connection and try again.');
+        btn.disabled = false;
+      }
+    });
+  });
+}
+
+document.getElementById('manAddBtn').addEventListener('click', async () => {
+  const flightNo = document.getElementById('manFlightNo').value.trim().toUpperCase();
+  const from = document.getElementById('manFrom').value.trim().toUpperCase();
+  const to = document.getElementById('manTo').value.trim().toUpperCase();
+  const dep = document.getElementById('manDep').value;
+  const arr = document.getElementById('manArr').value;
+  const aircraft = document.getElementById('manAircraft').value.trim();
+
+  if(!flightNo || !from || !to || !dep || !arr){
+    alert('Please fill in flight number, from, to, departure, and arrival.');
+    return;
+  }
+
+  const carrierMatch = flightNo.match(/^([A-Z]{2})(\d+)$/);
+  const callsign = carrierMatch
+    ? (MANUAL_CALLSIGN_PREFIXES[carrierMatch[1]] || carrierMatch[1]) + carrierMatch[2]
+    : flightNo;
+
+  const addBtn = document.getElementById('manAddBtn');
+  addBtn.disabled = true;
+  addBtn.textContent = 'Adding…';
+
+  try{
+    const params = new URLSearchParams({
+      addFlight: '1',
+      flightNo, callsign, from, to,
+      date: new Date(dep).toISOString(),
+      arrival: new Date(arr).toISOString(),
+      aircraft: aircraft || '',
+      cb: Date.now(),
+    });
+    const sep = CALENDAR_FEED_URL.includes('?') ? '&' : '?';
+    await fetch(CALENDAR_FEED_URL + sep + params.toString(), { cache: 'no-store' });
+
+    document.getElementById('manFlightNo').value = '';
+    document.getElementById('manFrom').value = '';
+    document.getElementById('manTo').value = '';
+    document.getElementById('manDep').value = '';
+    document.getElementById('manArr').value = '';
+    document.getElementById('manAircraft').value = '';
+
+    await syncScheduleFromCalendar();
+    renderManualFlightsList();
+  }catch(e){
+    alert('Could not add flight — check your connection and try again.');
+  }finally{
+    addBtn.disabled = false;
+    addBtn.textContent = 'Add Flight';
+  }
+});
+
+renderManualFlightsList();
+
+// Flight replay/preview: tapping a flight's chip in the calendar shows its route and times, plus
+// either the actual recorded trail (past flights) or a map + forecasted weather (future flights).
+document.getElementById('calendarGrid').addEventListener('click', (e) => {
+  const chip = e.target.closest('.chip-clickable');
+  if(!chip) return;
+  const key = chip.getAttribute('data-flight-key');
+  if(!key) return;
+  if(chip.getAttribute('data-is-past') === 'true') openFlightReplay(key);
+  else openFlightPreview(key);
+});
+
+async function openFlightReplay(key){
+  const flight = MY_FLIGHTS.find(f => (f.flightNo + '_' + f.date) === key);
+  if(!flight) return;
+
+  const from = airportInfo(flight.from), to = airportInfo(flight.to);
+  const overlay = document.getElementById('replayOverlay');
+  overlay.innerHTML = `
+    <div class="replay-overlay" id="replayBackdrop">
+      <div class="replay-panel">
+        <div class="replay-header">
+          <h2>${flight.flightNo} · ${cityLabel(from)} → ${cityLabel(to)}</h2>
+          <button class="replay-close" id="replayCloseBtn">Close</button>
+        </div>
+        <div class="replay-times">
+          Takeoff: <b>${new Date(flight.date).toLocaleString(undefined,{dateStyle:'medium',timeStyle:'short'})}</b>
+          &nbsp;&nbsp;→&nbsp;&nbsp;
+          Landing: <b>${new Date(flight.arrival).toLocaleString(undefined,{dateStyle:'medium',timeStyle:'short'})}</b>
+        </div>
+        <div id="replayMapContainer" style="height:320px;border-radius:10px;overflow:hidden;"></div>
+        <div id="replayNoTrail" style="display:none;" class="replay-no-trail">No tracking data was recorded for this flight.</div>
+      </div>
+    </div>`;
+
+  document.getElementById('replayCloseBtn').addEventListener('click', () => { overlay.innerHTML = ''; });
+  document.getElementById('replayBackdrop').addEventListener('click', (e) => {
+    if(e.target.id === 'replayBackdrop') overlay.innerHTML = '';
+  });
+
+  if(from.lat == null || to.lat == null) return; // unknown airport — map can't render, times still shown above
+
+  const trail = await fetchServerTrail(key);
+  if(trail.length > 1){
+    const last = trail[trail.length - 1];
+    renderMap('replayMapContainer', from, to, 1, { lat: last.lat, lon: last.lon }, trail, false, true);
+  } else {
+    document.getElementById('replayMapContainer').style.display = 'none';
+    document.getElementById('replayNoTrail').style.display = 'block';
+  }
+}
+
+async function openFlightPreview(key){
+  const flight = MY_FLIGHTS.find(f => (f.flightNo + '_' + f.date) === key);
+  if(!flight) return;
+
+  const from = airportInfo(flight.from), to = airportInfo(flight.to);
+  const overlay = document.getElementById('replayOverlay');
+  overlay.innerHTML = `
+    <div class="replay-overlay" id="replayBackdrop">
+      <div class="replay-panel">
+        <div class="replay-header">
+          <h2>${flight.flightNo} · ${cityLabel(from)} → ${cityLabel(to)}</h2>
+          <button class="replay-close" id="replayCloseBtn">Close</button>
+        </div>
+        <div class="replay-times">
+          Departs: <b>${new Date(flight.date).toLocaleString(undefined,{dateStyle:'medium',timeStyle:'short'})}</b>
+          &nbsp;&nbsp;→&nbsp;&nbsp;
+          Arrives: <b>${new Date(flight.arrival).toLocaleString(undefined,{dateStyle:'medium',timeStyle:'short'})}</b>
+        </div>
+        <div id="previewMapEl" style="height:320px;border-radius:10px;overflow:hidden;"></div>
+        <div class="replay-times" id="previewWeather" style="margin-top:14px;">Loading forecast…</div>
+        <div class="replay-times" id="previewDetails" style="margin-top:6px;"></div>
+        <button class="replay-close" id="hideFlightBtn" style="margin-top:14px;">Hide this flight (booked but not using it)</button>
+      </div>
+    </div>`;
+
+  document.getElementById('replayCloseBtn').addEventListener('click', () => { overlay.innerHTML = ''; });
+  document.getElementById('replayBackdrop').addEventListener('click', (e) => {
+    if(e.target.id === 'replayBackdrop') overlay.innerHTML = '';
+  });
+  document.getElementById('hideFlightBtn').addEventListener('click', async () => {
+    const sep = CALENDAR_FEED_URL.includes('?') ? '&' : '?';
+    const url = `${CALENDAR_FEED_URL}${sep}hideFlight=${encodeURIComponent(key)}&cb=${Date.now()}`;
+    await fetch(url, { cache: 'no-store' });
+    overlay.innerHTML = '';
+    await syncScheduleFromCalendar();
+    renderCalendar(MY_FLIGHTS); // syncScheduleFromCalendar only updates the data — this actually redraws it
+  });
+
+  if(from.lat != null && to.lat != null){
+    // Full planned route, no live position or trail — the flight hasn't happened yet.
+    renderMap('previewMapEl', from, to, null, null, [], false, true);
+  } else {
+    document.getElementById('previewMapEl').style.display = 'none';
+  }
+
+  // Forecasted weather at the actual scheduled departure/arrival times, not just "right now" —
+  // only meaningful within Open-Meteo's ~15-day reliable forecast window.
+  const [wxFrom, wxTo] = await Promise.all([
+    getForecastWeather(from, new Date(flight.date)),
+    getForecastWeather(to, new Date(flight.arrival)),
+  ]);
+  const wxEl = document.getElementById('previewWeather');
+  if(wxFrom || wxTo){
+    const fromText = wxFrom ? `${flight.from}: ${wxFrom.icon} ${wxFrom.temp}°F ${wxFrom.description}` : `${flight.from}: forecast not available yet`;
+    const toText = wxTo ? `${flight.to}: ${wxTo.icon} ${wxTo.temp}°F ${wxTo.description}` : `${flight.to}: forecast not available yet`;
+    wxEl.innerHTML = `Forecast — ${fromText} &nbsp;&nbsp;|&nbsp;&nbsp; ${toText}`;
+  } else {
+    wxEl.textContent = 'Forecast not available yet for this far out.';
+  }
+
+  // Extra details from AeroDataBox, when available — terminal/gate are usually only assigned
+  // within a day or two of departure, so these will often read "TBD" for flights further out.
+  try{
+    const sep = CALENDAR_FEED_URL.includes('?') ? '&' : '?';
+    const url = `${CALENDAR_FEED_URL}${sep}revisedArrival=1&flightNo=${encodeURIComponent(flight.flightNo)}&date=${encodeURIComponent(flight.date)}&cb=${Date.now()}`;
+    const res = await fetch(url, { cache: 'no-store' });
+    const data = await res.json();
+    const detailsEl = document.getElementById('previewDetails');
+    if(data.found){
+      const parts = [];
+      if(data.depTerminal || data.depGate) parts.push(`${flight.from} Terminal ${data.depTerminal || 'TBD'}, Gate ${data.depGate || 'TBD'}`);
+      if(data.arrTerminal || data.arrGate) parts.push(`${flight.to} Terminal ${data.arrTerminal || 'TBD'}, Gate ${data.arrGate || 'TBD'}`);
+      if(data.aircraftReg) parts.push(`Aircraft reg. ${data.aircraftReg}`);
+      if(data.status) parts.push(`Status: ${data.status}`);
+      detailsEl.textContent = parts.length ? parts.join(' · ') : 'Gate and terminal not assigned yet.';
+    } else {
+      detailsEl.textContent = '';
+    }
+  }catch(e){
+    // Silently leave details blank on failure — the map and times above are the important part.
+  }
+}
+</script>
+</body>
+</html>
